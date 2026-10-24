@@ -1,0 +1,2087 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Nestegg</title>
+<meta name="description" content="Our household budget — check in daily, earn rewards, grow our nest egg.">
+<meta name="theme-color" content="#1f6b4f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Nestegg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{
+  --bg:#f5f2ea; --surface:#ffffff; --surface-2:#efebe0; --ink:#1d2420; --ink-2:#5b645f; --ink-3:#8b928d;
+  --line:#e2ddd0; --brand:#1f6b4f; --brand-2:#2f8a66; --brand-soft:#dcefe5; --gold:#d99a1e; --gold-soft:#fbefd2;
+  --danger:#c2412d; --danger-soft:#f8e1dc; --blue:#2d6cb5; --blue-soft:#dde9f7; --purple:#7b4fc2; --purple-soft:#ebe3f8;
+  --shadow:0 1px 2px rgba(20,30,25,.06),0 4px 14px rgba(20,30,25,.06); --radius:18px;
+  --nav-h:68px; color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#111613; --surface:#1a211d; --surface-2:#232c27; --ink:#eef2ef; --ink-2:#aab4ae; --ink-3:#7c8781;
+    --line:#2c3631; --brand:#4fbf8f; --brand-2:#6fd3a7; --brand-soft:#1e3b2f; --gold:#f0b43c; --gold-soft:#3a2f17;
+    --danger:#f07a66; --danger-soft:#3d221d; --blue:#7fb0ec; --blue-soft:#1d2b3d; --purple:#b596ef; --purple-soft:#2c2340;
+    --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#1a211d; --surface-2:#232c27; --ink:#eef2ef; --ink-2:#aab4ae; --ink-3:#7c8781;
+  --line:#2c3631; --brand:#4fbf8f; --brand-2:#6fd3a7; --brand-soft:#1e3b2f; --gold:#f0b43c; --gold-soft:#3a2f17;
+  --danger:#f07a66; --danger-soft:#3d221d; --blue:#7fb0ec; --blue-soft:#1d2b3d; --purple:#b596ef; --purple-soft:#2c2340;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;min-height:100vh;overscroll-behavior-y:none}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none;padding:0}
+a{color:var(--brand)}
+.hidden{display:none!important}
+#app{max-width:1000px;margin:0 auto;padding:0 16px calc(var(--nav-h) + 28px + env(safe-area-inset-bottom));min-height:100vh}
+.topbar{display:flex;align-items:center;gap:12px;padding:calc(14px + env(safe-area-inset-top)) 0 10px}
+.topbar h1{font-size:22px;margin:0;flex:1;letter-spacing:-.01em}
+.topbar .sub{font-size:13px;color:var(--ink-2);font-weight:500}
+.iconbtn{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;background:var(--surface);box-shadow:var(--shadow);font-size:18px;position:relative}
+.iconbtn .dot{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--gold)}
+.avatar{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--brand-soft);color:var(--brand);font-weight:700;font-size:16px}
+.grid{display:grid;gap:14px}
+@media(min-width:820px){.grid.two{grid-template-columns:1fr 1fr}.span2{grid-column:1/-1}}
+.card{background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px}
+.card h2,.card h3{margin:0 0 10px;font-size:16px;letter-spacing:-.005em}
+.card h2 .muted,.card h3 .muted{font-weight:500}
+.row{display:flex;align-items:center;gap:10px}
+.row.between{justify-content:space-between}
+.wrap{flex-wrap:wrap}
+.muted{color:var(--ink-2)}
+.small{font-size:13px}
+.tiny{font-size:12px}
+.strong{font-weight:700}
+.right{text-align:right}
+.center{text-align:center}
+.mt{margin-top:12px}.mt2{margin-top:20px}.mb{margin-bottom:12px}
+.big-num{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.mid-num{font-size:22px;font-weight:750;letter-spacing:-.01em}
+.pos{color:var(--brand)} .neg{color:var(--danger)}
+.hero{background:linear-gradient(140deg,var(--brand) 0%,#164e3a 100%);color:#fff}
+:root[data-theme="dark"] .hero{background:linear-gradient(140deg,#1f6b4f,#123a2c)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .hero{background:linear-gradient(140deg,#1f6b4f,#123a2c)}}
+.hero .muted{color:rgba(255,255,255,.78)}
+.hero .bar{background:rgba(255,255,255,.22)}
+.hero .bar>i{background:#fff}
+.bar{height:10px;border-radius:99px;background:var(--surface-2);overflow:hidden;position:relative}
+.bar>i{display:block;height:100%;border-radius:99px;background:var(--brand);transition:width .4s ease}
+.bar.warn>i{background:var(--gold)} .bar.over>i{background:var(--danger)}
+.bar.thin{height:6px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;font-size:12px;font-weight:650;background:var(--surface-2);color:var(--ink-2)}
+.pill.gold{background:var(--gold-soft);color:#8a5b00}
+:root[data-theme="dark"] .pill.gold{color:var(--gold)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .pill.gold{color:var(--gold)}}
+.pill.green{background:var(--brand-soft);color:var(--brand)}
+.pill.red{background:var(--danger-soft);color:var(--danger)}
+.pill.blue{background:var(--blue-soft);color:var(--blue)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:46px;padding:0 18px;border-radius:14px;font-weight:650;
+  background:var(--surface-2);color:var(--ink);transition:transform .08s ease,opacity .2s}
+.btn:active{transform:scale(.97)}
+.btn.primary{background:var(--brand);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#0d1a14}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .btn.primary{color:#0d1a14}}
+.btn.gold{background:var(--gold);color:#2b1d00}
+.btn.ghost{background:transparent;color:var(--brand)}
+.btn.danger{background:var(--danger-soft);color:var(--danger)}
+.btn.block{width:100%}
+.btn.sm{min-height:36px;padding:0 12px;border-radius:11px;font-size:14px}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+.btns>.btn{flex:1}
+label.field{display:block;margin:12px 0}
+label.field>span{display:block;font-size:13px;color:var(--ink-2);margin-bottom:6px;font-weight:600}
+.input,select.input,textarea.input{width:100%;min-height:46px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);outline:none;font-size:16px}
+.input:focus{border-color:var(--brand)}
+textarea.input{min-height:80px;resize:vertical}
+.seg{display:flex;background:var(--surface-2);border-radius:14px;padding:4px;gap:4px}
+.seg button{flex:1;min-height:40px;border-radius:11px;font-weight:650;font-size:14px;color:var(--ink-2)}
+.seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.list{display:flex;flex-direction:column}
+.li{display:flex;align-items:center;gap:12px;padding:11px 2px;border-bottom:1px solid var(--line)}
+.li:last-child{border-bottom:0}
+.li .ico{width:40px;height:40px;border-radius:12px;background:var(--surface-2);display:grid;place-items:center;font-size:19px;flex:none}
+.li .main{flex:1;min-width:0}
+.li .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .s{font-size:12.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .amt{font-weight:700;white-space:nowrap}
+.li.tap{cursor:pointer}
+.date-h{font-size:12px;font-weight:700;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em;margin:14px 2px 2px}
+/* streaks */
+.streaks{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.streak{background:var(--surface-2);border-radius:14px;padding:10px 8px;text-align:center}
+.streak .n{font-size:24px;font-weight:800;line-height:1.1}
+.streak .l{font-size:12px;color:var(--ink-2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.streak.done{background:var(--gold-soft)}
+.streak .f{font-size:11px;color:var(--ink-3)}
+.week{display:flex;gap:6px;justify-content:space-between;margin-top:12px}
+.week .d{flex:1;text-align:center;font-size:11px;color:var(--ink-3);font-weight:650}
+.week .d b{display:block;margin:4px auto 0;width:26px;height:26px;border-radius:50%;background:var(--surface-2);line-height:26px;font-size:13px}
+.week .d.ok b{background:var(--gold);color:#2b1d00}
+.week .d.fr b{background:var(--blue-soft);color:var(--blue)}
+.week .d.today b{outline:2px solid var(--brand);outline-offset:1px}
+/* tier */
+.tier{display:flex;align-items:center;gap:14px}
+.badge{width:60px;height:60px;border-radius:18px;display:grid;place-items:center;font-size:30px;flex:none}
+.badge.Bronze{background:#f3e0cf}.badge.Silver{background:#e7eaee}.badge.Gold{background:#fbe9b8}.badge.Diamond{background:#dcecff}
+:root[data-theme="dark"] .badge{filter:saturate(.8) brightness(.8)}
+.nudge{display:flex;gap:12px;align-items:flex-start;padding:12px;border-radius:14px;background:var(--surface-2);margin-top:10px;cursor:pointer}
+.nudge .e{font-size:22px;line-height:1}
+.nudge .t{font-weight:650}
+.nudge.gold{background:var(--gold-soft)} .nudge.green{background:var(--brand-soft)} .nudge.blue{background:var(--blue-soft)}
+/* nav */
+.nav{position:fixed;left:0;right:0;bottom:0;z-index:30;background:var(--surface);border-top:1px solid var(--line);
+  padding:6px 8px calc(6px + env(safe-area-inset-bottom));display:flex;justify-content:center}
+.nav .in{display:flex;width:100%;max-width:560px;justify-content:space-around;align-items:center}
+.nav button{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;font-weight:650;color:var(--ink-3);padding:6px 0;min-height:52px}
+.nav button .i{font-size:21px;line-height:1;filter:grayscale(1);opacity:.75}
+.nav button.on{color:var(--brand)}
+.nav button.on .i{filter:none;opacity:1}
+.nav .add{flex:none;width:60px;height:60px;border-radius:20px;background:var(--brand);color:#fff;font-size:32px;font-weight:400;
+  display:grid;place-items:center;margin:-22px 6px 0;box-shadow:0 6px 18px rgba(31,107,79,.35);min-height:0}
+/* sheet */
+.overlay{position:fixed;inset:0;background:rgba(10,15,12,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .15s ease}
+.sheet{background:var(--bg);width:100%;max-width:560px;max-height:94vh;overflow:auto;border-radius:24px 24px 0 0;
+  padding:10px 16px calc(18px + env(safe-area-inset-bottom));animation:up .22s cubic-bezier(.2,.8,.2,1)}
+@media(min-width:820px){.overlay{align-items:center}.sheet{border-radius:24px;max-height:90vh}}
+.sheet .grab{width:42px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 10px}
+.sheet h2{margin:4px 0 12px;font-size:19px}
+@keyframes up{from{transform:translateY(40px);opacity:.4}to{transform:none;opacity:1}}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+/* add */
+.amount-display{text-align:center;font-size:44px;font-weight:800;letter-spacing:-.02em;padding:6px 0 2px;min-height:62px}
+.amount-display .cur{font-size:26px;color:var(--ink-3);margin-right:4px;font-weight:700}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:8px 0 12px}
+.keypad button{min-height:52px;border-radius:14px;background:var(--surface);font-size:22px;font-weight:650;box-shadow:var(--shadow)}
+.keypad button:active{background:var(--surface-2)}
+.cats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+@media(min-width:480px){.cats{grid-template-columns:repeat(5,1fr)}}
+.cat{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border-radius:14px;background:var(--surface);border:2px solid transparent;font-size:11.5px;font-weight:600;color:var(--ink-2);text-align:center;line-height:1.15}
+.cat .e{font-size:22px}
+.cat.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{padding:8px 12px;border-radius:99px;background:var(--surface);border:1.5px solid var(--line);font-size:14px;font-weight:600}
+.chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
+/* toast */
+#toasts{position:fixed;left:0;right:0;top:calc(12px + env(safe-area-inset-top));z-index:90;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.toast{background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:14px;font-weight:650;font-size:14.5px;box-shadow:0 8px 24px rgba(0,0,0,.2);animation:up .25s ease;max-width:92vw}
+.toast.gold{background:var(--gold);color:#2b1d00}
+#confetti{position:fixed;inset:0;pointer-events:none;z-index:95}
+/* onboarding */
+.ob{max-width:520px;margin:0 auto;padding-top:calc(30px + env(safe-area-inset-top))}
+.logo{width:76px;height:76px;border-radius:24px;background:var(--brand);display:grid;place-items:center;font-size:40px;margin:10px auto 14px;box-shadow:0 10px 30px rgba(31,107,79,.3)}
+.ob h1{text-align:center;font-size:28px;margin:0 0 6px;letter-spacing:-.02em}
+.ob p.lead{text-align:center;color:var(--ink-2);margin:0 0 24px}
+.steps{display:flex;gap:6px;justify-content:center;margin:0 0 18px}
+.steps i{width:28px;height:5px;border-radius:9px;background:var(--line)}
+.steps i.on{background:var(--brand)}
+.choice{display:flex;gap:14px;align-items:center;padding:16px;border-radius:16px;background:var(--surface);box-shadow:var(--shadow);margin-bottom:10px;text-align:left;width:100%}
+.choice .e{font-size:28px}
+.choice .t{font-weight:700}
+.choice .s{font-size:13px;color:var(--ink-2)}
+/* table */
+.tbl-wrap{overflow:auto;max-height:55vh;border:1px solid var(--line);border-radius:12px;background:var(--surface)}
+table.tbl{border-collapse:collapse;width:100%;font-size:13.5px}
+.tbl th{position:sticky;top:0;background:var(--surface-2);text-align:left;padding:8px;font-size:12px;color:var(--ink-2);z-index:1}
+.tbl td{padding:6px 8px;border-top:1px solid var(--line);vertical-align:middle}
+.tbl td.desc{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl select{min-height:34px;padding:4px 6px;font-size:13px;border-radius:9px;border:1px solid var(--line);background:var(--surface);max-width:150px}
+.tbl tr.off td{opacity:.4}
+.tbl tr.flag td{background:var(--gold-soft)}
+/* chart */
+.chart svg{width:100%;height:auto;display:block}
+.chart .axis{stroke:var(--line)}
+.chart .ln{stroke:var(--brand);stroke-width:2.5;fill:none}
+.chart .ar{fill:var(--brand-soft);opacity:.8}
+.chart text{fill:var(--ink-3);font-size:10px}
+.checklist .ci{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--line)}
+.checklist .ci:last-child{border-bottom:0}
+.checklist input{width:22px;height:22px;accent-color:var(--brand);flex:none;margin-top:1px}
+.empty{text-align:center;color:var(--ink-2);padding:22px 8px}
+.empty .e{font-size:36px;display:block;margin-bottom:6px}
+.sep{height:1px;background:var(--line);margin:14px 0}
+.goal-emoji{font-size:26px}
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.kpi{background:var(--surface-2);border-radius:14px;padding:10px}
+.kpi .l{font-size:12px;color:var(--ink-2);font-weight:600}
+.kpi .v{font-weight:800;font-size:17px;letter-spacing:-.01em}
+.hero .kpi{background:rgba(255,255,255,.12)}
+.hero .kpi .l{color:rgba(255,255,255,.8)}
+.toggle{position:relative;width:48px;height:28px;flex:none}
+.toggle input{opacity:0;width:0;height:0}
+.toggle span{position:absolute;inset:0;border-radius:99px;background:var(--line);transition:.2s}
+.toggle span:before{content:"";position:absolute;width:22px;height:22px;left:3px;top:3px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle input:checked+span{background:var(--brand)}
+.toggle input:checked+span:before{transform:translateX(20px)}
+.code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;background:var(--surface-2);padding:2px 6px;border-radius:6px;word-break:break-all}
+
+.sticky-save{position:sticky;bottom:calc(-18px - env(safe-area-inset-bottom));background:var(--bg);padding:10px 0 calc(10px + env(safe-area-inset-bottom));margin-top:12px;z-index:2}
+.tbl.imp td.desc{max-width:none;width:100%}
+.tbl.imp td.desc>div{white-space:nowrap;max-width:40vw}
+@media(min-width:700px){.tbl.imp td.desc>div{max-width:420px}}
+.tbl.imp select{display:block;width:118px;max-width:118px}
+.keypad button{min-height:48px}
+.cats{grid-template-columns:repeat(5,1fr);gap:6px}
+.cat{padding:6px 2px;font-size:10.5px}
+.cat .e{font-size:20px}
+.amount-display{font-size:40px;min-height:54px;padding:2px 0}
+@media(max-height:700px){.keypad button{min-height:42px;font-size:20px}.keypad{gap:6px}}
+.grid>*{min-width:0}
+.hero .row.between{flex-wrap:wrap;row-gap:6px}
+.kpi{min-width:0}
+.kpi .v{overflow-wrap:anywhere}
+@media(max-width:380px){.kpi .v{font-size:15px}.big-num{font-size:30px}}
+
+</style>
+</head>
+<body>
+<div id="app"><p style="padding:40px;text-align:center">Loading…</p></div>
+<div id="nav-root"></div>
+<div id="sheet-root"></div>
+<div id="toasts"></div>
+<canvas id="confetti"></canvas>
+<noscript><p style="padding:20px">Nestegg needs JavaScript switched on.</p></noscript>
+<script>
+(function(){'use strict';
+/* ===== Nestegg — core: config, utils, state, storage, merge ===== */
+var CONFIG = {
+  // Paste your Google OAuth Client ID here (see README step 3). Can also be set per device in Settings.
+  GOOGLE_CLIENT_ID: '',
+  APP_NAME: 'Nestegg',
+  DATA_FILE: 'nestegg-household-data.json',
+  VERSION: '1.0.0'
+};
+var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
+var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules'];
+var TIERS = [
+  {name:'Bronze', min:0, emoji:'🥉'},
+  {name:'Silver', min:400, emoji:'🥈'},
+  {name:'Gold', min:900, emoji:'🥇'},
+  {name:'Diamond', min:1500, emoji:'💎'}
+];
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function now(){ return Date.now(); }
+function pad(n){ return (n<10?'0':'') + n; }
+function d2s(d){ return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
+function s2d(s){ var p = s.split('-'); return new Date(+p[0], +p[1]-1, +p[2]); }
+function todayStr(){ return d2s(new Date()); }
+function addDays(s, n){ var d = s2d(s); d.setDate(d.getDate()+n); return d2s(d); }
+function daysBetween(a, b){ return Math.round((s2d(b) - s2d(a)) / 86400000); }
+function daysInMonth(y, m){ return new Date(y, m+1, 0).getDate(); }
+function fmtDate(s, withYear){ var d = s2d(s); return d.getDate() + ' ' + MONTHS[d.getMonth()] + (withYear ? ' ' + d.getFullYear() : ''); }
+function fmtDay(s){
+  var t = todayStr();
+  if (s === t) return 'Today';
+  if (s === addDays(t,-1)) return 'Yesterday';
+  var d = s2d(s); return DOW[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()];
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function round2(n){ return Math.round((+n || 0) * 100) / 100; }
+function fmtR(n, cents){
+  n = +n || 0;
+  var neg = n < 0; n = Math.abs(n);
+  var fixed = cents ? n.toFixed(2) : Math.round(n).toString();
+  var parts = fixed.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return (neg ? '−' : '') + 'R' + parts[0] + (parts[1] ? '.' + parts[1] : '');
+}
+function fmtRc(n){ return fmtR(n, Math.abs(n) < 1000 && Math.round(n) !== n); }
+function sum(arr, f){ var t = 0; for (var i=0;i<arr.length;i++) t += f ? (+f(arr[i]) || 0) : (+arr[i] || 0); return t; }
+function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+function $(sel, root){ return (root || document).querySelector(sel); }
+function $all(sel, root){ return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+/* ---------- default categories (fixed ids so separate devices merge cleanly) ---------- */
+var DEFAULT_CATEGORIES = [
+  ['c-rent','Rent / Bond','🏠','needs',25],
+  ['c-groceries','Groceries','🛒','needs',16],
+  ['c-transport','Transport & Fuel','⛽','needs',10],
+  ['c-utilities','Electricity & Water','💡','needs',5],
+  ['c-airtime','Airtime & Data','📱','needs',3],
+  ['c-medical','Medical','🩺','needs',3],
+  ['c-insurance','Insurance','🛡️','needs',4],
+  ['c-school','School & Kids','🎒','needs',0],
+  ['c-family','Family support','🤝','needs',4],
+  ['c-giving','Church & Giving','🙏','giving',5],
+  ['c-debt','Debt repayments','💳','debt',0],
+  ['c-fees','Bank fees','🏦','needs',1],
+  ['c-eatingout','Eating out','🍔','wants',3],
+  ['c-entertainment','Entertainment','🎬','wants',2],
+  ['c-clothing','Clothing','👕','wants',2],
+  ['c-personal','Personal care','💈','wants',2],
+  ['c-subs','Subscriptions','📺','wants',1],
+  ['c-shopping','Shopping','🛍️','wants',2],
+  ['c-gifts','Gifts','🎁','wants',1],
+  ['c-cash','Cash withdrawals','💵','other',0],
+  ['c-other','Other','📦','other',0],
+  ['c-reward','Reward Pot treat','🎉','reward',0]
+];
+var GROUP_LABEL = {needs:'Needs', giving:'Giving', debt:'Debt', wants:'Wants', other:'Other', reward:'Rewards'};
+var GROUP_ORDER = ['needs','giving','debt','wants','other','reward'];
+
+function blankState(){
+  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[]};
+}
+function defaultDevice(){
+  return {memberId:null, clientId:'', autoSync:null, driveFileId:null, token:null, tokenExp:0, lastSync:0, syncError:'',
+    theme:'auto', lastRecap:null, joining:false, dirty:false, seenTips:{}};
+}
+
+var state = blankState();
+var device = defaultDevice();
+
+function loadAll(){
+  try { var s = localStorage.getItem(LS_DATA); if (s) state = normalizeState(JSON.parse(s)); } catch(e){ console.warn('load data', e); }
+  try { var d = localStorage.getItem(LS_DEVICE); if (d) { var dd = JSON.parse(d); device = Object.assign(defaultDevice(), dd); } } catch(e){ console.warn('load device', e); }
+}
+function normalizeState(s){
+  var out = blankState();
+  if (!s || typeof s !== 'object') return out;
+  out.household = s.household || null;
+  COLLS.forEach(function(c){ out[c] = Array.isArray(s[c]) ? s[c] : []; });
+  return out;
+}
+function saveState(skipSync){
+  clearCache();
+  try { localStorage.setItem(LS_DATA, JSON.stringify(state)); }
+  catch(e){ toast('Storage is full — please export a backup in Settings', ''); }
+  if (!skipSync) { device.dirty = true; saveDevice(); scheduleSync(); }
+}
+function saveDevice(){ try { localStorage.setItem(LS_DEVICE, JSON.stringify(device)); } catch(e){} }
+
+/* ---------- collection helpers (soft delete + updatedAt for sync) ---------- */
+function live(coll){ return state[coll].filter(function(x){ return !x.deleted; }); }
+function byId(coll, id){ var a = state[coll]; for (var i=0;i<a.length;i++) if (a[i].id === id) return a[i]; return null; }
+function upsert(coll, obj){
+  obj.updatedAt = now();
+  var a = state[coll];
+  for (var i=0;i<a.length;i++) if (a[i].id === obj.id) { a[i] = obj; return obj; }
+  a.push(obj); return obj;
+}
+function removeItem(coll, id){
+  var o = byId(coll, id); if (!o) return;
+  o.deleted = true; o.updatedAt = now();
+}
+function setHousehold(h){ h.updatedAt = now(); state.household = h; }
+
+function mergeStates(a, b){
+  var out = blankState();
+  var ha = a.household, hb = b.household;
+  out.household = !ha ? hb : !hb ? ha : ((hb.updatedAt||0) > (ha.updatedAt||0) ? hb : ha);
+  COLLS.forEach(function(c){
+    var map = {};
+    (a[c]||[]).forEach(function(x){ map[x.id] = x; });
+    (b[c]||[]).forEach(function(y){ var x = map[y.id]; if (!x || (y.updatedAt||0) > (x.updatedAt||0)) map[y.id] = y; });
+    out[c] = Object.keys(map).sort().map(function(k){ return map[k]; });
+  });
+  return out;
+}
+function canonical(s){
+  var c = normalizeState(s);
+  COLLS.forEach(function(k){ c[k] = c[k].slice().sort(function(x,y){ return x.id < y.id ? -1 : x.id > y.id ? 1 : 0; }); });
+  return JSON.stringify(c);
+}
+
+/* ---------- household / members ---------- */
+function members(){ return state.household ? state.household.members : []; }
+function member(id){ var m = members(); for (var i=0;i<m.length;i++) if (m[i].id === id) return m[i]; return null; }
+function me(){ return member(device.memberId) || members()[0] || {id:'m1', name:'Me'}; }
+function partner(){ var m = members(); for (var i=0;i<m.length;i++) if (m[i].id !== me().id) return m[i]; return null; }
+function initial(name){ return (name || '?').trim().charAt(0).toUpperCase(); }
+function cat(id){ return byId('categories', id) || {id:'c-other', name:'Other', emoji:'📦', group:'other', budget:0}; }
+function liveCats(){
+  return live('categories').sort(function(a,b){
+    var g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
+    return g !== 0 ? g : (a.order||0) - (b.order||0);
+  });
+}
+function spendCats(){ return liveCats().filter(function(c){ return c.group !== 'reward'; }); }
+
+function createHousehold(opts){
+  var h = {
+    id: 'h-' + uid(), name: opts.householdName || 'Our household',
+    members: [{id:'m1', name:opts.name1 || 'Me'}, {id:'m2', name:opts.name2 || 'Partner'}],
+    periodStartDay: opts.payday || 26,
+    incomes: {m1: +opts.income1 || 0, m2: +opts.income2 || 0},
+    savingsTarget: 0,
+    rewardPct: {Bronze:10, Silver:20, Gold:25, Diamond:30},
+    createdOn: todayStr()
+  };
+  setHousehold(h);
+  var totalIncome = (+opts.income1||0) + (+opts.income2||0);
+  DEFAULT_CATEGORIES.forEach(function(d, i){
+    var b = opts.quickBudget && totalIncome ? Math.round(totalIncome * d[4] / 100 / 50) * 50 : 0;
+    if (!byId('categories', d[0])) upsert('categories', {id:d[0], name:d[1], emoji:d[2], group:d[3], budget:b, order:i});
+  });
+  if (opts.quickBudget && totalIncome) h.savingsTarget = Math.round(totalIncome * 0.1 / 50) * 50;
+  device.memberId = opts.whoAmI || 'm1';
+  saveDevice();
+}
+
+/* ===== Nestegg — calculations: periods, budgets, streaks, points, Reward Pot ===== */
+var _cache = {};
+function clearCache(){ _cache = {}; }
+function memo(key, fn){ if (!(key in _cache)) _cache[key] = fn(); return _cache[key]; }
+
+function payDay(){ return state.household ? (state.household.periodStartDay || 1) : 1; }
+function periodStartFor(dateStr){
+  var day = payDay(), d = s2d(dateStr), y = d.getFullYear(), m = d.getMonth();
+  var startThis = Math.min(day, daysInMonth(y, m));
+  if (d.getDate() >= startThis) return d2s(new Date(y, m, startThis));
+  m--; if (m < 0) { m = 11; y--; }
+  return d2s(new Date(y, m, Math.min(day, daysInMonth(y, m))));
+}
+function nextPeriodStart(start){
+  var d = s2d(start), y = d.getFullYear(), m = d.getMonth() + 1;
+  if (m > 11) { m = 0; y++; }
+  return d2s(new Date(y, m, Math.min(payDay(), daysInMonth(y, m))));
+}
+function periodEndFor(start){ return addDays(nextPeriodStart(start), -1); }
+function prevPeriodStart(start){ return periodStartFor(addDays(start, -1)); }
+function currentPeriod(){ return periodStartFor(todayStr()); }
+function periodName(start){
+  var end = s2d(periodEndFor(start));
+  return MONTHS[end.getMonth()] + ' ' + end.getFullYear();
+}
+function periodRange(start){ return fmtDate(start) + ' – ' + fmtDate(periodEndFor(start)); }
+
+function txBetween(a, b){
+  return live('tx').filter(function(t){ return t.date >= a && t.date <= b; });
+}
+function isSpend(t){ return t.type === 'expense' && t.categoryId !== 'c-reward'; }
+
+function periodSummary(start){
+  return memo('ps:' + start, function(){
+    var h = state.household || {incomes:{}};
+    var end = periodEndFor(start), t = todayStr();
+    var txs = txBetween(start, end);
+    var byCat = {};
+    var spent = 0, income = 0, saved = 0, skipped = 0, rewardSpent = 0;
+    txs.forEach(function(x){
+      var a = +x.amount || 0;
+      if (x.type === 'expense') {
+        if (x.categoryId === 'c-reward') rewardSpent += a;
+        else { spent += a; byCat[x.categoryId] = (byCat[x.categoryId] || 0) + a; }
+      } else if (x.type === 'income') income += a;
+      else if (x.type === 'saving') saved += a;
+      else if (x.type === 'skip') skipped += a;
+    });
+    var expectedIncome = sum(Object.keys(h.incomes || {}), function(k){ return h.incomes[k]; });
+    var budgeted = sum(spendCats(), function(c){ return c.budget; });
+    var days = daysBetween(start, end) + 1;
+    var dayIndex = t < start ? 0 : t > end ? days : daysBetween(start, t) + 1;
+    var incomeBase = Math.max(income, expectedIncome);
+    return {
+      start:start, end:end, days:days, dayIndex:dayIndex, daysLeft: Math.max(0, days - dayIndex + 1),
+      isCurrent: t >= start && t <= end, isPast: t > end,
+      txs:txs, byCat:byCat, spent:round2(spent), income:round2(income), saved:round2(saved), skipped:round2(skipped),
+      rewardSpent:round2(rewardSpent), expectedIncome:expectedIncome, incomeBase:incomeBase,
+      budgeted:budgeted, savingsTarget: h.savingsTarget || 0,
+      leftToSpend: round2(budgeted - spent),
+      leftToAssign: round2(incomeBase - budgeted - (h.savingsTarget || 0)),
+      surplus: round2(income - spent)
+    };
+  });
+}
+
+/* ---------- check-ins & streaks ---------- */
+function checkinMap(){
+  return memo('cim', function(){
+    var map = {};
+    members().forEach(function(m){ map[m.id] = {}; });
+    live('tx').forEach(function(t){ if (t.createdOn && t.memberId && map[t.memberId]) map[t.memberId][t.createdOn] = true; });
+    live('checkins').forEach(function(c){ if (map[c.memberId]) map[c.memberId][c.date] = true; });
+    return map;
+  });
+}
+function didCheckIn(memberId, date){ var m = checkinMap()[memberId]; return !!(m && m[date]); }
+function bothCheckedIn(date){ var ms = members(); return ms.length > 1 && ms.every(function(m){ return didCheckIn(m.id, date); }); }
+function firstActivity(){
+  return memo('first', function(){
+    var first = state.household && state.household.createdOn || todayStr();
+    var map = checkinMap();
+    Object.keys(map).forEach(function(k){ Object.keys(map[k]).forEach(function(d){ if (d < first) first = d; }); });
+    return first;
+  });
+}
+function streakCalc(isDone){
+  var t = todayStr(), d = firstActivity();
+  var r = {streak:0, best:0, freezes:0, today:false, frozen:{}, milestones:{}};
+  if (d > t) return r;
+  var guard = 0;
+  for (; d < t && guard < 4000; d = addDays(d, 1), guard++) {
+    if (isDone(d)) {
+      r.streak++;
+      if (r.streak % 7 === 0) { r.freezes = Math.min(2, r.freezes + 1); r.milestones[d] = r.streak; }
+    } else if (r.streak > 0 && r.freezes > 0) { r.freezes--; r.frozen[d] = true; }
+    else r.streak = 0;
+    r.best = Math.max(r.best, r.streak);
+  }
+  if (isDone(t)) {
+    r.today = true; r.streak++;
+    if (r.streak % 7 === 0) { r.freezes = Math.min(2, r.freezes + 1); r.milestones[t] = r.streak; }
+  }
+  r.best = Math.max(r.best, r.streak);
+  return r;
+}
+function memberStreak(id){ return memo('st:' + id, function(){ return streakCalc(function(d){ return didCheckIn(id, d); }); }); }
+function coupleStreak(){ return memo('st:couple', function(){ return streakCalc(bothCheckedIn); }); }
+
+/* ---------- points & tiers ---------- */
+function tierFor(points){
+  var t = TIERS[0];
+  TIERS.forEach(function(x){ if (points >= x.min) t = x; });
+  return t;
+}
+function nextTier(points){
+  for (var i=0;i<TIERS.length;i++) if (TIERS[i].min > points) return TIERS[i];
+  return null;
+}
+function pointsFor(start){
+  return memo('pts:' + start, function(){
+    var end = periodEndFor(start), t = todayStr(), last = end < t ? end : t;
+    var items = [], total = 0;
+    function add(label, pts, e){ if (pts > 0) { items.push({label:label, pts:pts, e:e}); total += pts; } }
+    var ms = members();
+    ms.forEach(function(m){
+      var n = 0, d;
+      for (d = start; d <= last; d = addDays(d, 1)) if (didCheckIn(m.id, d)) n++;
+      add('Daily check-ins · ' + m.name + ' (' + n + ' day' + (n===1?'':'s') + ')', n * 10, '🔥');
+      var st = memberStreak(m.id), bonus = 0;
+      Object.keys(st.milestones).forEach(function(k){ if (k >= start && k <= end) bonus += 30; });
+      add('Streak milestones · ' + m.name, bonus, '⭐');
+    });
+    if (ms.length > 1) {
+      var c = 0, d2;
+      for (d2 = start; d2 <= last; d2 = addDays(d2, 1)) if (bothCheckedIn(d2)) c++;
+      add('Both checked in (' + c + ' day' + (c===1?'':'s') + ')', c * 5, '💞');
+    }
+    var began = state.household && state.household.createdOn || start;
+    var txs = txBetween(start, end), skipPts = 0, savePts = 0, early = 0, imported = false;
+    txs.forEach(function(x){
+      if (x.date < began) return; // history from before you started doesn't earn points
+      if (x.type === 'skip') skipPts += Math.min(50, Math.floor((+x.amount||0) / 10));
+      if (x.type === 'saving') {
+        savePts += Math.min(100, Math.floor((+x.amount||0) / 20));
+        if (x.date <= addDays(start, 4) && early < 2) early++;
+      }
+    });
+    live('tx').forEach(function(x){ if (x.source === 'import' && x.createdOn >= start && x.createdOn <= end) imported = true; });
+    add('Skipped purchases', skipPts, '💪');
+    add('Money moved to savings', savePts, '🏦');
+    add('Paid yourselves first (saved in first 5 days)', early * 25, '🚀');
+    var md = live('moneyDates').filter(function(x){ return x.date >= start && x.date <= end; }).length;
+    add('Money dates (' + md + ')', md * 50, '☕');
+    var s = periodSummary(start), weekly = s.budgeted * 7 / s.days, weeks = 0;
+    if (s.budgeted > 0) {
+      for (var w = 0; ; w++) {
+        var ws = addDays(start, w * 7), we = addDays(ws, 6);
+        if (we > end || we >= t) break;
+        if (ws < began) continue;
+        var spentW = sum(txBetween(ws, we).filter(isSpend), function(x){ return x.amount; });
+        if (spentW <= weekly) weeks++;
+      }
+    }
+    add('Weeks under budget (' + weeks + ')', weeks * 40, '🎯');
+    add('Imported bank statements', imported ? 20 : 0, '📄');
+    var reached = live('goals').filter(function(g){ return g.reachedOn && g.reachedOn >= start && g.reachedOn <= end; }).length;
+    add('Goals reached', reached * 100, '🏆');
+    return {total:total, items:items, tier:tierFor(total), next:nextTier(total)};
+  });
+}
+
+/* ---------- Reward Pot ---------- */
+function rewardPct(tierName){ var p = state.household && state.household.rewardPct || {}; return +p[tierName] || 0; }
+function rewardHistory(){
+  return memo('rh', function(){
+    var cur = currentPeriod(), first = null;
+    live('tx').forEach(function(x){ if (!first || x.date < first) first = x.date; });
+    if (!first) return [];
+    // Rewards only accrue from the month you started using Nestegg — imported history doesn't earn a pot.
+    var startedOn = periodStartFor(state.household && state.household.createdOn || first);
+    if (first < startedOn) first = startedOn;
+    var out = [], p = periodStartFor(first), guard = 0;
+    while (p < cur && guard < 240) {
+      var s = periodSummary(p), pts = pointsFor(p), pct = rewardPct(pts.tier.name);
+      var reward = s.income > 0 && s.surplus > 0 ? Math.round(s.surplus * pct / 100) : 0;
+      out.push({start:p, income:s.income, spent:s.spent, saved:s.saved, surplus:s.surplus, points:pts.total, tier:pts.tier, pct:pct, reward:reward});
+      p = nextPeriodStart(p); guard++;
+    }
+    return out.reverse();
+  });
+}
+function potBalance(){
+  return memo('pot', function(){
+    var earned = sum(rewardHistory(), function(r){ return r.reward; });
+    var used = sum(live('tx').filter(function(x){ return x.type === 'expense' && x.categoryId === 'c-reward'; }), function(x){ return x.amount; });
+    return {earned:earned, used:used, balance:round2(earned - used)};
+  });
+}
+function projectedReward(){
+  var s = periodSummary(currentPeriod()), pts = pointsFor(currentPeriod());
+  var surplus = s.incomeBase - Math.max(s.budgeted, s.spent);
+  return {amount: Math.max(0, Math.round(surplus * rewardPct(pts.tier.name) / 100)), pct: rewardPct(pts.tier.name), surplus: surplus};
+}
+
+/* ---------- totals for wealth ---------- */
+function totalSkipped(){ return sum(live('tx').filter(function(x){ return x.type === 'skip'; }), function(x){ return x.amount; }); }
+function goalSaved(goalId){ return sum(live('tx').filter(function(x){ return x.type === 'saving' && x.goalId === goalId; }), function(x){ return x.amount; }); }
+function latestNetWorth(){
+  var a = live('netWorth').sort(function(x,y){ return x.date < y.date ? -1 : 1; });
+  return a;
+}
+
+/* ===== Nestegg — UI infrastructure: render loop, events, toasts, confetti, sheets ===== */
+var ui = {tab:'home', view:null, period:null, sheet:null, ob:{step:0}, actFilter:{q:'', type:'all', who:'all'}, imp:null};
+var ACTIONS = {}, CHANGES = {}, INPUTS = {};
+
+function render(keepScroll){
+  clearCache();
+  applyTheme();
+  var app = $('#app');
+  var y = window.scrollY;
+  if (!state.household) app.innerHTML = viewOnboarding();
+  else app.innerHTML = viewMain();
+  $('#nav-root').innerHTML = state.household && !ui.view ? viewNav() : '';
+  renderSheet();
+  if (keepScroll) window.scrollTo(0, y);
+  afterRender();
+}
+var _afterHooks = [];
+function afterRender(){ var h = _afterHooks; _afterHooks = []; h.forEach(function(f){ try { f(); } catch(e){ console.error(e); } }); }
+function onNextRender(f){ _afterHooks.push(f); }
+
+function renderSheet(){
+  var root = $('#sheet-root');
+  if (!ui.sheet) { root.innerHTML = ''; document.body.style.overflow = ''; return; }
+  var fn = SHEETS[ui.sheet.type];
+  root.innerHTML = '<div class="overlay" data-act="sheetBg"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + (fn ? fn(ui.sheet) : '') + '</div></div>';
+  document.body.style.overflow = 'hidden';
+}
+var SHEETS = {};
+function openSheet(type, data){ ui.sheet = Object.assign({type:type}, data || {}); renderSheet(); }
+function closeSheet(){ ui.sheet = null; renderSheet(); }
+ACTIONS.sheetBg = function(el, ev){ if (ev.target === el) closeSheet(); };
+ACTIONS.closeSheet = function(){ closeSheet(); };
+
+function go(tab){ ui.tab = tab; ui.view = null; ui.period = null; render(); window.scrollTo(0,0); }
+function openView(v, extra){ ui.view = v; if (extra) Object.assign(ui, extra); render(); window.scrollTo(0,0); }
+ACTIONS.tab = function(el){ go(el.getAttribute('data-id')); };
+ACTIONS.view = function(el){ openView(el.getAttribute('data-id')); };
+ACTIONS.back = function(){ ui.view = null; render(); window.scrollTo(0,0); };
+
+document.addEventListener('click', function(ev){
+  var el = ev.target.closest('[data-act]');
+  if (!el) return;
+  var name = el.getAttribute('data-act');
+  if (ACTIONS[name]) { ACTIONS[name](el, ev); }
+});
+document.addEventListener('change', function(ev){
+  var el = ev.target.closest('[data-change]');
+  if (el && CHANGES[el.getAttribute('data-change')]) CHANGES[el.getAttribute('data-change')](el, ev);
+});
+document.addEventListener('input', function(ev){
+  var el = ev.target.closest('[data-input]');
+  if (el && INPUTS[el.getAttribute('data-input')]) INPUTS[el.getAttribute('data-input')](el, ev);
+});
+
+function toast(msg, kind){
+  var box = $('#toasts'); if (!box) return;
+  var t = document.createElement('div');
+  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.textContent = msg;
+  while (box.children.length >= 2) box.removeChild(box.firstChild);
+  box.appendChild(t);
+  setTimeout(function(){ t.style.transition = 'opacity .3s'; t.style.opacity = '0'; }, 2600);
+  setTimeout(function(){ if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
+}
+function buzz(ms){ try { if (navigator.vibrate) navigator.vibrate(ms || 12); } catch(e){} }
+
+function confetti(){
+  var c = $('#confetti'); if (!c || !c.getContext) return;
+  var ctx = c.getContext('2d'), W = c.width = window.innerWidth, H = c.height = window.innerHeight;
+  var colors = ['#1f6b4f','#d99a1e','#4fbf8f','#f0b43c','#2d6cb5','#c2412d'];
+  var ps = [];
+  for (var i=0;i<110;i++) ps.push({x:W/2 + (Math.random()-.5)*80, y:H*0.35, vx:(Math.random()-.5)*12, vy:-Math.random()*13-4,
+    s:Math.random()*7+4, r:Math.random()*6, vr:(Math.random()-.5)*.3, c:colors[i%colors.length]});
+  var frames = 0;
+  (function tick(){
+    ctx.clearRect(0,0,W,H);
+    ps.forEach(function(p){ p.vy += .38; p.x += p.vx; p.y += p.vy; p.r += p.vr; p.vx *= .99;
+      ctx.save(); ctx.translate(p.x,p.y); ctx.rotate(p.r); ctx.fillStyle = p.c; ctx.fillRect(-p.s/2,-p.s/4,p.s,p.s/2); ctx.restore(); });
+    if (++frames < 110) requestAnimationFrame(tick); else ctx.clearRect(0,0,W,H);
+  })();
+}
+
+function applyTheme(){
+  var r = document.documentElement;
+  if (device.theme === 'light' || device.theme === 'dark') r.setAttribute('data-theme', device.theme);
+  else r.removeAttribute('data-theme');
+}
+
+function confirmBox(msg){ return window.confirm(msg); }
+
+function bar(value, max, cls){
+  var pct = max > 0 ? clamp(value / max * 100, 0, 100) : (value > 0 ? 100 : 0);
+  var c = cls || (max > 0 && value > max ? 'over' : max > 0 && value > max * 0.85 ? 'warn' : '');
+  return '<div class="bar ' + c + '"><i style="width:' + pct.toFixed(1) + '%"></i></div>';
+}
+function download(filename, text, mime){
+  var blob = new Blob([text], {type: mime || 'application/octet-stream'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a'); a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 1500);
+}
+function shareOrDownload(filename, text, mime){
+  try {
+    if (navigator.canShare && typeof File !== 'undefined') {
+      var f = new File([text], filename, {type: mime});
+      if (navigator.canShare({files:[f]})) {
+        return navigator.share({files:[f], title: filename}).catch(function(){ download(filename, text, mime); });
+      }
+    }
+  } catch(e){}
+  download(filename, text, mime);
+}
+
+/* Celebrate changes: compare snapshot before/after an action */
+function snapshot(){
+  clearCache();
+  var p = currentPeriod(), pts = pointsFor(p);
+  return {pts:pts.total, tier:pts.tier.name, streak:memberStreak(me().id).streak, today:memberStreak(me().id).today, couple:coupleStreak().streak};
+}
+function celebrate(before){
+  var a = snapshot(), gained = a.pts - before.pts;
+  if (!before.today && a.today) { toast('🔥 Checked in! Streak: ' + a.streak + ' day' + (a.streak===1?'':'s'), 'gold'); buzz(25); }
+  else if (gained > 0) toast('+' + gained + ' points', 'gold');
+  if (a.tier !== before.tier && a.pts > before.pts) { setTimeout(function(){ toast('🎉 You reached ' + a.tier + ' tier!', 'gold'); }, 600); confetti(); }
+  else if (a.streak !== before.streak && a.streak > 0 && a.streak % 7 === 0) { confetti(); toast('⭐ ' + a.streak + '-day streak! You earned a streak freeze', 'gold'); }
+  else if (a.couple > before.couple && a.couple > 0 && a.couple % 7 === 0) { confetti(); toast('💞 ' + a.couple + ' days checking in together!', 'gold'); }
+}
+
+/* ===== Nestegg — main views: home, budget, wealth, rewards, activity ===== */
+var VIEWS = {};
+function viewMain(){
+  if (ui.view && VIEWS[ui.view]) return VIEWS[ui.view]();
+  return ({home:viewHome, budget:viewBudget, wealth:viewWealth, rewards:viewRewards}[ui.tab] || viewHome)();
+}
+function viewNav(){
+  function b(id, icon, label){ return '<button class="' + (ui.tab===id?'on':'') + '" data-act="tab" data-id="' + id + '"><span class="i">' + icon + '</span>' + label + '</button>'; }
+  return '<nav class="nav"><div class="in">' + b('home','🏡','Home') + b('budget','📊','Budget') +
+    '<button class="add" data-act="quickAdd" aria-label="Add">+</button>' + b('wealth','🌱','Wealth') + b('rewards','🏆','Rewards') + '</div></nav>';
+}
+function syncIcon(){
+  var connected = !!device.driveFileId || Drive.tokenValid();
+  var dot = (connected && device.dirty) || device.syncError ? '<span class="dot"></span>' : '';
+  return '<button class="iconbtn" data-act="syncNow" title="' + (connected ? 'Sync now' : 'Sync is off — tap to set up') + '"><span style="' + (connected ? '' : 'opacity:.35;filter:grayscale(1)') + '">☁️</span>' + dot + '</button>';
+}
+function topbar(title, sub, opts){
+  opts = opts || {};
+  var left = opts.back ? '<button class="iconbtn" data-act="' + (opts.backAct || 'back') + '" aria-label="Back">←</button>'
+    : '<button class="avatar" data-act="switchMe" title="Switch person">' + esc(initial(me().name)) + '</button>';
+  return '<header class="topbar">' + left + '<div style="flex:1;min-width:0"><h1>' + title + '</h1>' + (sub ? '<div class="sub">' + sub + '</div>' : '') + '</div>' +
+    (opts.right || (syncIcon() + '<button class="iconbtn" data-act="view" data-id="settings" aria-label="Settings">⚙️</button>')) + '</header>';
+}
+function txIcon(t){
+  if (t.type === 'income') return '💰';
+  if (t.type === 'saving') { var g = t.goalId && byId('goals', t.goalId); return g ? g.emoji : '🏦'; }
+  if (t.type === 'skip') return '💪';
+  if (t.type === 'ignore') return '↔️';
+  return cat(t.categoryId).emoji;
+}
+function txTitle(t){
+  if (t.note) return t.note;
+  if (t.type === 'income') return 'Income';
+  if (t.type === 'saving') { var g = t.goalId && byId('goals', t.goalId); return g ? 'Saved for ' + g.name : 'Moved to savings'; }
+  if (t.type === 'skip') return 'Skipped a purchase';
+  if (t.type === 'ignore') return 'Transfer (not counted)';
+  return cat(t.categoryId).name;
+}
+function txAmount(t){
+  var a = +t.amount || 0;
+  if (t.type === 'income') return '<span class="amt pos">+' + fmtRc(a) + '</span>';
+  if (t.type === 'saving') return '<span class="amt" style="color:var(--blue)">' + fmtRc(a) + '</span>';
+  if (t.type === 'skip') return '<span class="amt" style="color:var(--gold)">' + fmtRc(a) + '</span>';
+  if (t.type === 'ignore') return '<span class="amt muted">' + fmtRc(a) + '</span>';
+  return '<span class="amt">−' + fmtRc(a) + '</span>';
+}
+function txRow(t){
+  var m = member(t.memberId), parts = [];
+  if (t.type === 'expense' && t.note) parts.push(cat(t.categoryId).name);
+  if (t.type === 'skip') parts.push('not spent');
+  if (m) parts.push(m.name);
+  parts.push(fmtDay(t.date));
+  if (t.source === 'import') parts.push('📄');
+  return '<div class="li tap" data-act="editTx" data-id="' + t.id + '"><div class="ico">' + txIcon(t) + '</div><div class="main"><div class="t">' + esc(txTitle(t)) +
+    '</div><div class="s">' + esc(parts.join(' · ')) + '</div></div>' + txAmount(t) + '</div>';
+}
+function sortTx(a){ return a.slice().sort(function(x,y){ return x.date !== y.date ? (x.date < y.date ? 1 : -1) : (y.createdAt||y.updatedAt||0) - (x.createdAt||x.updatedAt||0); }); }
+
+/* ---------- HOME ---------- */
+function nudges(){
+  var out = [], p = currentPeriod(), s = periodSummary(p), d = new Date();
+  if (!live('tx').length) out.push({e:'📄', t:'Bring in your bank statements', s:'Import FNB or GoTyme statements to see where your money really goes.', act:'view', id:'import', cls:'blue'});
+  if (s.income === 0) out.push({e:'💰', t:'Payday? Log your income', s:'Record what came in so every rand can get a job.', act:'addType', id:'income', cls:'green'});
+  if (s.budgeted === 0) out.push({e:'📊', t:'Set up your budget', s:'Give each category a monthly amount.', act:'tab', id:'budget', cls:'gold'});
+  else if (s.incomeBase > 0 && s.leftToAssign > 0) out.push({e:'🧩', t:fmtR(s.leftToAssign) + ' has no job yet', s:'Give every rand a job — budget it or save it.', act:'tab', id:'budget', cls:'gold'});
+  else if (s.leftToAssign < 0 && s.incomeBase > 0) out.push({e:'⚖️', t:'Budget is ' + fmtR(-s.leftToAssign) + ' more than income', s:'Trim a category so the plan balances.', act:'tab', id:'budget', cls:'gold'});
+  if (s.savingsTarget > 0 && s.saved < s.savingsTarget && s.dayIndex <= 7) out.push({e:'🚀', t:'Pay yourselves first', s:'Move ' + fmtR(s.savingsTarget - s.saved) + ' to savings now for bonus points.', act:'addType', id:'saving', cls:'green'});
+  var wk = weekKey(todayStr()), mdDone = live('moneyDates').some(function(x){ return x.id === 'md-' + wk; });
+  if (!mdDone && (d.getDay() === 0 || d.getDay() >= 5)) out.push({e:'☕', t:'Money date this weekend', s:'15 minutes together, +50 points.', act:'tab', id:'rewards', cls:'blue'});
+  var pot = potBalance().balance;
+  if (pot > 0) out.push({e:'🎉', t:fmtR(pot) + ' in your Reward Pot', s:'You earned it. Spend it guilt-free on something you both enjoy.', act:'tab', id:'rewards', cls:'gold'});
+  return out.slice(0, 3);
+}
+function viewHome(){
+  var p = currentPeriod(), s = periodSummary(p), pts = pointsFor(p);
+  var mine = memberStreak(me().id), pr = partner(), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
+  var h = new Date().getHours(), greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+  var html = topbar(greet + ', ' + esc(me().name), esc(periodName(p)) + ' budget · ' + s.daysLeft + ' day' + (s.daysLeft===1?'':'s') + ' left');
+  html += '<div class="grid two">';
+  // hero
+  var perDay = s.daysLeft > 0 ? s.leftToSpend / s.daysLeft : 0;
+  html += '<div class="card hero span2"><div class="row between"><div class="muted small strong">Left to spend this month</div><span class="pill gold">' + pts.tier.emoji + ' ' + pts.tier.name + ' · ' + pts.total + ' pts</span></div>' +
+    '<div class="big-num" style="margin:6px 0 10px">' + (s.budgeted > 0 ? fmtR(s.leftToSpend) : '—') + '</div>' +
+    (s.budgeted > 0 ? bar(s.spent, s.budgeted, s.spent > s.budgeted ? 'over' : '') : '') +
+    '<div class="muted small" style="margin-top:8px">' + (s.budgeted === 0 ? 'Set a budget to see what\'s left each day.' :
+      s.leftToSpend >= 0 ? 'About <b style="color:#fff">' + fmtR(perDay) + ' a day</b> for the next ' + s.daysLeft + ' days. Spent ' + fmtR(s.spent) + ' of ' + fmtR(s.budgeted) + '.'
+      : 'Over by ' + fmtR(-s.leftToSpend) + '. No stress — pick one category to trim and get back on track.') + '</div>' +
+    '<div class="kpis mt"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) +
+    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div></div>';
+  // check-in
+  html += '<div class="card"><div class="row between"><h2>Daily check-in</h2>' + (mine.today ? '<span class="pill green">✓ Done today</span>' : '<span class="pill gold">Not yet today</span>') + '</div>' +
+    '<div class="streaks"><div class="streak ' + (mine.today?'done':'') + '"><div class="n">🔥 ' + mine.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">' + (mine.freezes ? '🧊×' + mine.freezes : '&nbsp;') + '</div></div>' +
+    (ps ? '<div class="streak ' + (ps.today?'done':'') + '"><div class="n">🔥 ' + ps.streak + '</div><div class="l">' + esc(pr.name) + '</div><div class="f">' + (ps.freezes ? '🧊×' + ps.freezes : '&nbsp;') + '</div></div>' : '') +
+    '<div class="streak ' + (cs.today?'done':'') + '"><div class="n">💞 ' + cs.streak + '</div><div class="l">Together</div><div class="f">' + (cs.freezes ? '🧊×' + cs.freezes : '&nbsp;') + '</div></div></div>' +
+    weekDots(me().id) +
+    (mine.today ? '<p class="small muted" style="margin:12px 0 0">Nice. Log anything else you spend today — it takes 10 seconds.</p>'
+      : '<div class="btns mt"><button class="btn primary" data-act="quickAdd">＋ Log a spend</button><button class="btn" data-act="noSpend">✓ No spend today</button></div>') + '</div>';
+  // nudges
+  var ns = nudges();
+  html += '<div class="card"><h2>Next best moves</h2>' + (ns.length ? ns.map(function(n){
+    return '<div class="nudge ' + n.cls + '" data-act="' + n.act + '" data-id="' + n.id + '"><div class="e">' + n.e + '</div><div><div class="t">' + esc(n.t) + '</div><div class="small muted">' + esc(n.s) + '</div></div></div>';
+  }).join('') : '<div class="empty"><span class="e">🌿</span>All caught up. Keep the streak alive tomorrow.</div>') + '</div>';
+  // categories
+  var cats = spendCats().map(function(c){ return {c:c, spent:s.byCat[c.id] || 0}; }).filter(function(x){ return x.spent > 0 || x.c.budget > 0; })
+    .sort(function(a,b){ return (b.spent / (b.c.budget||1)) - (a.spent / (a.c.budget||1)); }).slice(0, 5);
+  html += '<div class="card"><div class="row between"><h2>Watch these</h2><button class="btn ghost sm" data-act="tab" data-id="budget">Budget →</button></div>' +
+    (cats.length ? cats.map(function(x){
+      var left = x.c.budget - x.spent;
+      return '<div style="margin:10px 0"><div class="row between small"><span class="strong">' + x.c.emoji + ' ' + esc(x.c.name) + '</span><span class="' + (left < 0 ? 'neg' : 'muted') + '">' +
+        (x.c.budget ? (left >= 0 ? fmtR(left) + ' left' : fmtR(-left) + ' over') : fmtR(x.spent) + ' · no budget') + '</span></div>' + bar(x.spent, x.c.budget) + '</div>';
+    }).join('') : '<div class="empty"><span class="e">📊</span>No spending yet this month.</div>') + '</div>';
+  // recent
+  var recent = sortTx(live('tx')).slice(0, 6);
+  html += '<div class="card"><div class="row between"><h2>Recent</h2><button class="btn ghost sm" data-act="view" data-id="activity">See all →</button></div>' +
+    (recent.length ? '<div class="list">' + recent.map(txRow).join('') + '</div>' : '<div class="empty"><span class="e">🧾</span>Tap + to log your first spend.</div>') + '</div>';
+  html += '</div>';
+  return html;
+}
+function weekDots(memberId){
+  var t = todayStr(), st = memberStreak(memberId), out = '<div class="week">';
+  for (var i = 6; i >= 0; i--) {
+    var d = addDays(t, -i), ok = didCheckIn(memberId, d), fr = st.frozen[d];
+    out += '<div class="d ' + (ok ? 'ok' : fr ? 'fr' : '') + (i === 0 ? ' today' : '') + '">' + DOW[s2d(d).getDay()].charAt(0) + '<b>' + (ok ? '✓' : fr ? '🧊' : s2d(d).getDate()) + '</b></div>';
+  }
+  return out + '</div>';
+}
+function weekKey(dateStr){ var d = s2d(dateStr), dow = (d.getDay() + 6) % 7; return addDays(dateStr, -dow); }
+
+ACTIONS.noSpend = function(){
+  var before = snapshot(), t = todayStr();
+  upsert('checkins', {id:'ci-' + me().id + '-' + t, memberId:me().id, date:t, kind:'nospend'});
+  saveState(); render(true); celebrate(before);
+};
+ACTIONS.switchMe = function(){
+  var ms = members(); if (ms.length < 2) return;
+  openSheet('switchMe');
+};
+SHEETS.switchMe = function(){
+  return '<h2>Who is using this device?</h2><p class="small muted">Check-ins and entries are credited to this person.</p>' +
+    members().map(function(m){ return '<button class="choice" data-act="setMe" data-id="' + m.id + '"><div class="avatar">' + esc(initial(m.name)) + '</div><div><div class="t">' + esc(m.name) + '</div>' +
+      (m.id === me().id ? '<div class="s">Current</div>' : '') + '</div></button>'; }).join('');
+};
+ACTIONS.setMe = function(el){ device.memberId = el.getAttribute('data-id'); saveDevice(); closeSheet(); render(); toast('Hi ' + me().name + ' 👋'); };
+
+/* ---------- BUDGET ---------- */
+function periodNav(p){
+  var cur = currentPeriod();
+  return '<div class="row between card" style="padding:8px"><button class="btn sm" data-act="periodShift" data-id="-1">‹</button><div class="center"><div class="strong">' + esc(periodName(p)) +
+    (p === cur ? ' <span class="pill green">Now</span>' : '') + '</div><div class="tiny muted">' + esc(periodRange(p)) + '</div></div><button class="btn sm" data-act="periodShift" data-id="1"' + (p >= cur ? ' disabled' : '') + '>›</button></div>';
+}
+ACTIONS.periodShift = function(el){
+  var p = ui.period || currentPeriod(), n = +el.getAttribute('data-id');
+  ui.period = n < 0 ? prevPeriodStart(p) : nextPeriodStart(p);
+  if (ui.period > currentPeriod()) ui.period = currentPeriod();
+  render(true);
+};
+function viewBudget(){
+  var p = ui.period || currentPeriod(), s = periodSummary(p), h = state.household;
+  var html = topbar('Budget', 'Every rand gets a job');
+  html += periodNav(p) + '<div class="grid two mt">';
+  var lta = s.leftToAssign;
+  html += '<div class="card"><h2>The plan</h2>' +
+    '<div class="li"><div class="main"><div class="t">Income</div><div class="s">Expected ' + fmtR(s.expectedIncome) + ' · received ' + fmtR(s.income) + '</div></div><button class="btn sm" data-act="view" data-id="household">Edit</button></div>' +
+    '<div class="li tap" data-act="editSavingsTarget"><div class="main"><div class="t">🚀 Pay yourselves first</div><div class="s">Savings target · saved ' + fmtR(s.saved) + '</div></div><span class="amt">' + fmtR(s.savingsTarget) + '</span></div>' +
+    '<div class="li"><div class="main"><div class="t">Budgeted for spending</div><div class="s">Spent so far ' + fmtR(s.spent) + '</div></div><span class="amt">' + fmtR(s.budgeted) + '</span></div>' +
+    '<div class="nudge ' + (lta === 0 ? 'green' : 'gold') + '" style="cursor:default"><div class="e">' + (lta === 0 ? '✅' : lta > 0 ? '🧩' : '⚖️') + '</div><div><div class="t">' +
+    (s.incomeBase === 0 ? 'Add your expected income' : lta === 0 ? 'Every rand has a job' : lta > 0 ? fmtR(lta) + ' left to assign' : fmtR(-lta) + ' over-assigned') + '</div><div class="small muted">' +
+    (s.incomeBase === 0 ? 'Tap Edit next to Income.' : lta > 0 ? 'Add it to a category or your savings target.' : lta < 0 ? 'Your plan is bigger than your income — trim something.' : 'Your plan balances. Beautiful.') + '</div></div></div></div>';
+  html += '<div class="card"><h2>Tools</h2><div class="list">' +
+    '<div class="li tap" data-act="suggestBudget"><div class="ico">✨</div><div class="main"><div class="t">Suggest from our history</div><div class="s">Uses your real spending from past months</div></div></div>' +
+    '<div class="li tap" data-act="view" data-id="import"><div class="ico">📄</div><div class="main"><div class="t">Import bank statements</div><div class="s">FNB, GoTyme or any CSV / PDF</div></div></div>' +
+    '<div class="li tap" data-act="editCat" data-id=""><div class="ico">➕</div><div class="main"><div class="t">Add a category</div><div class="s">Name, emoji and monthly amount</div></div></div>' +
+    '<div class="li tap" data-act="view" data-id="activity"><div class="ico">🧾</div><div class="main"><div class="t">All transactions</div><div class="s">Search, edit or delete</div></div></div></div></div>';
+  var groups = {};
+  liveCats().forEach(function(c){ (groups[c.group] = groups[c.group] || []).push(c); });
+  GROUP_ORDER.forEach(function(g){
+    if (!groups[g] || g === 'reward') return;
+    var gs = sum(groups[g], function(c){ return s.byCat[c.id]; }), gb = sum(groups[g], function(c){ return c.budget; });
+    html += '<div class="card"><div class="row between"><h2>' + GROUP_LABEL[g] + '</h2><span class="small muted">' + fmtR(gs) + ' / ' + fmtR(gb) + '</span></div>' +
+      groups[g].map(function(c){
+        var sp = s.byCat[c.id] || 0, left = (c.budget||0) - sp;
+        return '<div class="tap" data-act="editCat" data-id="' + c.id + '" style="padding:9px 0;cursor:pointer"><div class="row between"><span class="strong">' + c.emoji + ' ' + esc(c.name) + '</span><span class="small ' + (left < 0 ? 'neg' : 'muted') + '">' +
+          fmtR(sp) + ' / ' + (c.budget ? fmtR(c.budget) : '<i>no budget</i>') + '</span></div><div style="margin-top:6px">' + bar(sp, c.budget) + '</div></div>';
+      }).join('') + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+ACTIONS.editSavingsTarget = function(){ openSheet('savingsTarget'); };
+SHEETS.savingsTarget = function(){
+  var h = state.household;
+  return '<h2>🚀 Pay yourselves first</h2><p class="small muted">The amount you move to savings as soon as you\'re paid — before any spending. Saving it in the first 5 days of the month earns bonus points.</p>' +
+    '<label class="field"><span>Monthly savings target (R)</span><input class="input" id="f-st" inputmode="decimal" value="' + (h.savingsTarget || '') + '" placeholder="e.g. 2000"></label>' +
+    '<button class="btn primary block" data-act="saveSavingsTarget">Save</button>';
+};
+ACTIONS.saveSavingsTarget = function(){
+  var h = Object.assign({}, state.household); h.savingsTarget = Math.max(0, parseAmount($('#f-st').value) || 0);
+  setHousehold(h); saveState(); closeSheet(); render(true);
+};
+ACTIONS.editCat = function(el){ openSheet('cat', {id: el.getAttribute('data-id') || null}); };
+SHEETS.cat = function(sh){
+  var c = sh.id ? byId('categories', sh.id) : null;
+  var p = ui.period || currentPeriod(), s = periodSummary(p);
+  var txs = c ? sortTx(s.txs.filter(function(t){ return t.type === 'expense' && t.categoryId === c.id; })) : [];
+  var groups = ['needs','giving','debt','wants','other'];
+  return '<h2>' + (c ? c.emoji + ' ' + esc(c.name) : 'New category') + '</h2>' +
+    '<div class="row"><label class="field" style="width:90px"><span>Emoji</span><input class="input center" id="f-ce" maxlength="4" value="' + esc(c ? c.emoji : '🏷️') + '"></label>' +
+    '<label class="field" style="flex:1"><span>Name</span><input class="input" id="f-cn" value="' + esc(c ? c.name : '') + '" placeholder="e.g. Petrol"></label></div>' +
+    '<label class="field"><span>Monthly budget (R)</span><input class="input" id="f-cb" inputmode="decimal" value="' + (c && c.budget ? c.budget : '') + '" placeholder="0"></label>' +
+    (c && c.group === 'reward' ? '' : '<label class="field"><span>Type</span><select class="input" id="f-cg">' + groups.map(function(g){ return '<option value="' + g + '"' + ((c ? c.group : 'wants') === g ? ' selected' : '') + '>' + GROUP_LABEL[g] + '</option>'; }).join('') + '</select></label>') +
+    '<div class="btns"><button class="btn primary" data-act="saveCat">Save</button>' + (c && c.id !== 'c-other' && c.id !== 'c-reward' ? '<button class="btn danger" data-act="deleteCat">Delete</button>' : '') + '</div>' +
+    (c ? '<div class="sep"></div><h3>This month · ' + fmtR(s.byCat[c.id] || 0) + '</h3>' + (txs.length ? '<div class="list">' + txs.map(txRow).join('') + '</div>' : '<p class="small muted">Nothing spent here yet.</p>') : '');
+};
+ACTIONS.saveCat = function(){
+  var sh = ui.sheet, c = sh.id ? Object.assign({}, byId('categories', sh.id)) : {id:'c-' + uid(), order: 100 + live('categories').length};
+  var name = $('#f-cn').value.trim(); if (!name) { toast('Give it a name'); return; }
+  c.name = name; c.emoji = $('#f-ce').value.trim() || '🏷️'; c.budget = Math.max(0, parseAmount($('#f-cb').value) || 0);
+  if ($('#f-cg')) c.group = $('#f-cg').value; else c.group = c.group || 'reward';
+  upsert('categories', c); saveState(); closeSheet(); render(true); toast('Saved');
+};
+ACTIONS.deleteCat = function(){
+  var id = ui.sheet.id; if (!confirmBox('Delete this category? Past transactions will move to "Other".')) return;
+  live('tx').forEach(function(t){ if (t.categoryId === id) { t.categoryId = 'c-other'; t.updatedAt = now(); } });
+  removeItem('categories', id); saveState(); closeSheet(); render(true);
+};
+ACTIONS.suggestBudget = function(){
+  var cur = currentPeriod(), periods = [], p = prevPeriodStart(cur);
+  for (var i = 0; i < 6 && periods.length < 3; i++) { if (periodSummary(p).spent > 0) periods.push(p); p = prevPeriodStart(p); }
+  if (!periods.length) { toast('Import a statement or log a month of spending first'); return; }
+  var sug = {};
+  spendCats().forEach(function(c){
+    var avg = sum(periods, function(pp){ return periodSummary(pp).byCat[c.id]; }) / periods.length;
+    sug[c.id] = avg > 0 ? Math.ceil(avg / 50) * 50 : 0;
+  });
+  openSheet('suggest', {sug:sug, n:periods.length});
+};
+SHEETS.suggest = function(sh){
+  var rows = spendCats().filter(function(c){ return sh.sug[c.id] > 0 || c.budget > 0; });
+  return '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>' +
+    '<div class="tbl-wrap"><table class="tbl"><tr><th>Category</th><th class="right">Now</th><th class="right">Suggested</th></tr>' +
+    rows.map(function(c){ return '<tr><td>' + c.emoji + ' ' + esc(c.name) + '</td><td class="right muted">' + fmtR(c.budget) + '</td><td class="right"><input class="input" style="min-height:34px;width:100px;text-align:right" data-sug="' + c.id + '" inputmode="decimal" value="' + sh.sug[c.id] + '"></td></tr>'; }).join('') +
+    '</table></div><div class="row between mt small"><span class="muted">Total suggested</span><b>' + fmtR(sum(rows, function(c){ return sh.sug[c.id]; })) + '</b></div>' +
+    '<button class="btn primary block mt" data-act="applySuggest">Use these amounts</button>';
+};
+ACTIONS.applySuggest = function(){
+  $all('[data-sug]').forEach(function(inp){
+    var c = Object.assign({}, byId('categories', inp.getAttribute('data-sug'))); c.budget = Math.max(0, parseAmount(inp.value) || 0); upsert('categories', c);
+  });
+  saveState(); closeSheet(); render(true); toast('Budget updated ✓');
+};
+
+/* ---------- ACTIVITY ---------- */
+VIEWS.activity = function(){
+  var p = ui.period || currentPeriod(), s = periodSummary(p), f = ui.actFilter;
+  var txs = sortTx(s.txs).filter(function(t){
+    if (f.type !== 'all' && t.type !== f.type) return false;
+    if (f.who !== 'all' && t.memberId !== f.who) return false;
+    if (f.q) { var q = f.q.toLowerCase(); if ((txTitle(t) + ' ' + cat(t.categoryId).name + ' ' + (t.raw || '')).toLowerCase().indexOf(q) < 0) return false; }
+    return true;
+  });
+  var html = topbar('Activity', txs.length + ' transaction' + (txs.length===1?'':'s'), {back:true});
+  html += periodNav(p);
+  html += '<div class="card mt"><input class="input" id="f-q" data-input="actSearch" placeholder="Search…" value="' + esc(f.q) + '">' +
+    '<div class="chips mt">' + [['all','All'],['expense','Spent'],['income','Earned'],['saving','Saved'],['skip','Skipped'],['ignore','Transfers']].map(function(x){
+      return '<button class="chip ' + (f.type === x[0] ? 'on' : '') + '" data-act="actType" data-id="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="chips mt">' + [['all','Everyone']].concat(members().map(function(m){ return [m.id, m.name]; })).map(function(x){
+      return '<button class="chip ' + (f.who === x[0] ? 'on' : '') + '" data-act="actWho" data-id="' + x[0] + '">' + esc(x[1]) + '</button>'; }).join('') + '</div></div>';
+  html += '<div class="card mt">';
+  if (!txs.length) html += '<div class="empty"><span class="e">🔍</span>Nothing here.</div>';
+  var lastDate = null;
+  txs.forEach(function(t){
+    if (t.date !== lastDate) { html += (lastDate ? '</div>' : '') + '<div class="date-h">' + fmtDay(t.date) + '</div><div class="list">'; lastDate = t.date; }
+    html += txRow(t);
+  });
+  if (lastDate) html += '</div>';
+  return html + '</div>';
+};
+ACTIONS.actType = function(el){ ui.actFilter.type = el.getAttribute('data-id'); render(true); };
+ACTIONS.actWho = function(el){ ui.actFilter.who = el.getAttribute('data-id'); render(true); };
+var _searchT;
+INPUTS.actSearch = function(el){
+  ui.actFilter.q = el.value; clearTimeout(_searchT);
+  _searchT = setTimeout(function(){ render(true); var i = $('#f-q'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 250);
+};
+
+/* ---------- WEALTH ---------- */
+function viewWealth(){
+  var p = currentPeriod(), s = periodSummary(p), goals = live('goals'), nw = latestNetWorth();
+  var html = topbar('Wealth', 'Small wins, compounding');
+  var rate = s.income > 0 ? Math.round(s.saved / s.income * 100) : 0;
+  html += '<div class="grid two"><div class="card hero span2"><div class="muted small strong">Money you chose not to spend</div><div class="big-num" style="margin:6px 0">' + fmtR(totalSkipped()) + '</div>' +
+    '<div class="muted small">Every "skipped purchase" you log adds up here. That\'s real money that stayed yours.</div>' +
+    '<div class="kpis mt"><div class="kpi"><div class="l">Saved this month</div><div class="v">' + fmtR(s.saved) + '</div></div><div class="kpi"><div class="l">Savings rate</div><div class="v">' + rate + '%</div></div>' +
+    '<div class="kpi"><div class="l">Net worth</div><div class="v">' + (nw.length ? fmtR(nw[nw.length-1].assets - nw[nw.length-1].debts) : '—') + '</div></div></div>' +
+    '<div class="btns mt"><button class="btn gold" data-act="addType" data-id="skip">💪 I skipped a purchase</button><button class="btn" style="background:rgba(255,255,255,.15);color:#fff" data-act="addType" data-id="saving">🏦 Move to savings</button></div></div>';
+  // goals
+  html += '<div class="card"><div class="row between"><h2>Goals</h2><button class="btn ghost sm" data-act="editGoal" data-id="">+ New goal</button></div>';
+  if (!goals.length) html += '<div class="empty"><span class="e">🎯</span>Name what you\'re saving for — an emergency fund, a house deposit, school fees. Named goals get funded.<br><button class="btn primary mt" data-act="editGoal" data-id="">Create your first goal</button></div>';
+  goals.forEach(function(g){
+    var saved = goalSaved(g.id), pct = g.target ? Math.min(100, Math.round(saved / g.target * 100)) : 0;
+    html += '<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row"><span class="goal-emoji">' + esc(g.emoji) + '</span><div style="flex:1;min-width:0"><div class="strong">' + esc(g.name) + '</div><div class="small muted">' +
+      fmtR(saved) + ' of ' + fmtR(g.target) + ' · ' + pct + '%' + (g.reachedOn ? ' · 🏆 reached' : '') + '</div></div><button class="btn sm" data-act="addToGoal" data-id="' + g.id + '">+ Add</button><button class="btn sm ghost" data-act="editGoal" data-id="' + g.id + '">✎</button></div>' +
+      '<div style="margin-top:8px">' + bar(saved, g.target, pct >= 100 ? '' : '') + '</div></div>';
+  });
+  html += '</div>';
+  // net worth
+  html += '<div class="card"><div class="row between"><h2>Net worth</h2><button class="btn ghost sm" data-act="editNW">Update</button></div>';
+  if (!nw.length) html += '<div class="empty"><span class="e">📈</span>What you own minus what you owe. Update it once a month and watch the line climb.<br><button class="btn primary mt" data-act="editNW">Add first snapshot</button></div>';
+  else {
+    var lastNW = nw[nw.length-1], val = lastNW.assets - lastNW.debts, prev = nw.length > 1 ? nw[nw.length-2].assets - nw[nw.length-2].debts : null;
+    html += '<div class="mid-num">' + fmtR(val) + '</div><div class="small ' + (prev === null ? 'muted' : val >= prev ? 'pos' : 'neg') + '">' +
+      (prev === null ? 'as at ' + fmtDate(lastNW.date, true) : (val >= prev ? '▲ ' : '▼ ') + fmtR(Math.abs(val - prev)) + ' since ' + fmtDate(nw[nw.length-2].date)) + '</div>' +
+      '<div class="chart mt">' + lineChart(nw.map(function(x){ return {label:fmtDate(x.date), v:x.assets - x.debts}; })) + '</div>' +
+      '<div class="kpis mt"><div class="kpi"><div class="l">Own</div><div class="v">' + fmtR(lastNW.assets) + '</div></div><div class="kpi"><div class="l">Owe</div><div class="v">' + fmtR(lastNW.debts) + '</div></div><div class="kpi"><div class="l">Snapshots</div><div class="v">' + nw.length + '</div></div></div>';
+  }
+  html += '</div></div>';
+  return html;
+}
+function lineChart(pts){
+  if (pts.length < 2) return '<p class="small muted">Add another snapshot next month to see your trend.</p>';
+  var W = 320, H = 120, P = 18, vs = pts.map(function(p){ return p.v; }), mn = Math.min.apply(null, vs), mx = Math.max.apply(null, vs);
+  if (mx === mn) { mx += 1; mn -= 1; }
+  function x(i){ return P + i * (W - 2*P) / (pts.length - 1); }
+  function y(v){ return H - P - (v - mn) / (mx - mn) * (H - 2*P); }
+  var d = pts.map(function(p, i){ return (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(p.v).toFixed(1); }).join(' ');
+  var area = d + ' L' + x(pts.length-1).toFixed(1) + ' ' + (H-P) + ' L' + P + ' ' + (H-P) + ' Z';
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '"><line class="axis" x1="' + P + '" x2="' + (W-P) + '" y1="' + (H-P) + '" y2="' + (H-P) + '"/>' +
+    '<path class="ar" d="' + area + '"/><path class="ln" d="' + d + '"/>' +
+    pts.map(function(p, i){ return '<circle cx="' + x(i).toFixed(1) + '" cy="' + y(p.v).toFixed(1) + '" r="3.5" fill="var(--brand)"/>'; }).join('') +
+    '<text x="' + P + '" y="' + (H-3) + '">' + esc(pts[0].label) + '</text><text x="' + (W-P) + '" y="' + (H-3) + '" text-anchor="end">' + esc(pts[pts.length-1].label) + '</text></svg>';
+}
+ACTIONS.editGoal = function(el){ openSheet('goal', {id: el.getAttribute('data-id') || null}); };
+SHEETS.goal = function(sh){
+  var g = sh.id ? byId('goals', sh.id) : null;
+  var ideas = [['🛟','Emergency fund'],['🏡','House deposit'],['🚗','Car'],['🎓','School fees'],['✈️','Holiday'],['💍','Anniversary']];
+  return '<h2>' + (g ? 'Edit goal' : 'New goal') + '</h2>' +
+    (g ? '' : '<div class="chips">' + ideas.map(function(i){ return '<button class="chip" data-act="goalIdea" data-e="' + i[0] + '" data-n="' + i[1] + '">' + i[0] + ' ' + i[1] + '</button>'; }).join('') + '</div>') +
+    '<div class="row mt"><label class="field" style="width:90px"><span>Emoji</span><input class="input center" id="f-ge" maxlength="4" value="' + esc(g ? g.emoji : '🎯') + '"></label>' +
+    '<label class="field" style="flex:1"><span>Name</span><input class="input" id="f-gn" value="' + esc(g ? g.name : '') + '" placeholder="e.g. Emergency fund"></label></div>' +
+    '<label class="field"><span>Target amount (R)</span><input class="input" id="f-gt" inputmode="decimal" value="' + (g ? g.target : '') + '"></label>' +
+    '<div class="btns"><button class="btn primary" data-act="saveGoal">Save goal</button>' + (g ? '<button class="btn danger" data-act="deleteGoal">Delete</button>' : '') + '</div>';
+};
+ACTIONS.goalIdea = function(el){ $('#f-ge').value = el.getAttribute('data-e'); $('#f-gn').value = el.getAttribute('data-n'); $('#f-gt').focus(); };
+ACTIONS.saveGoal = function(){
+  var sh = ui.sheet, g = sh.id ? Object.assign({}, byId('goals', sh.id)) : {id:'g-' + uid(), createdOn:todayStr()};
+  g.name = $('#f-gn').value.trim(); g.emoji = $('#f-ge').value.trim() || '🎯'; g.target = parseAmount($('#f-gt').value) || 0;
+  if (!g.name || !g.target) { toast('Add a name and target'); return; }
+  if (g.reachedOn && goalSaved(g.id) < g.target) g.reachedOn = null;
+  upsert('goals', g); saveState(); closeSheet(); render(true); toast('Goal saved 🎯');
+};
+ACTIONS.deleteGoal = function(){ if (!confirmBox('Delete this goal? Money already saved stays recorded as savings.')) return; removeItem('goals', ui.sheet.id); saveState(); closeSheet(); render(true); };
+ACTIONS.addToGoal = function(el){ openAdd({type:'saving', goalId:el.getAttribute('data-id')}); };
+ACTIONS.editNW = function(){ openSheet('nw'); };
+var NW_FIELDS = {assets:[['cash','Cash & bank accounts'],['savings','Savings & emergency fund'],['invest','Investments (TFSA, unit trusts, shares)'],['retire','Retirement (RA, pension, provident)'],['property','Property value'],['vehicle','Vehicle value'],['otherA','Other assets']],
+  debts:[['homeloan','Home loan'],['carloan','Car finance'],['cards','Credit cards'],['personal','Personal loans'],['store','Store accounts'],['otherD','Other debts']]};
+SHEETS.nw = function(){
+  var prev = latestNetWorth(), last = prev.length ? prev[prev.length-1].items || {} : {};
+  function f(k, l){ return '<label class="field"><span>' + l + '</span><input class="input" data-nw="' + k + '" inputmode="decimal" value="' + (last[k] || '') + '" placeholder="0"></label>'; }
+  return '<h2>📈 Net worth snapshot</h2><p class="small muted">Rough numbers are fine. Pre-filled from your last snapshot.</p><h3>What you own</h3>' +
+    NW_FIELDS.assets.map(function(x){ return f(x[0], x[1]); }).join('') + '<h3 class="mt2">What you owe</h3>' + NW_FIELDS.debts.map(function(x){ return f(x[0], x[1]); }).join('') +
+    '<button class="btn primary block mt" data-act="saveNW">Save snapshot</button>';
+};
+ACTIONS.saveNW = function(){
+  var items = {}, assets = 0, debts = 0;
+  $all('[data-nw]').forEach(function(i){ var k = i.getAttribute('data-nw'), v = parseAmount(i.value) || 0; items[k] = v; });
+  NW_FIELDS.assets.forEach(function(x){ assets += items[x[0]] || 0; });
+  NW_FIELDS.debts.forEach(function(x){ debts += items[x[0]] || 0; });
+  var t = todayStr();
+  upsert('netWorth', {id:'nw-' + t.slice(0,7), date:t, assets:round2(assets), debts:round2(debts), items:items});
+  saveState(); closeSheet(); render(true); toast('Net worth: ' + fmtR(assets - debts));
+};
+
+/* ---------- REWARDS ---------- */
+var MD_ITEMS = ['Look at this week\'s spending together — no blame, just curiosity','Celebrate one win (a skipped purchase, a week under budget)','Check the categories that are running hot','Agree on one thing to do differently next week','Check progress on your goals and Reward Pot'];
+function viewRewards(){
+  var p = currentPeriod(), pts = pointsFor(p), nxt = pts.next, pot = potBalance(), proj = projectedReward(), hist = rewardHistory();
+  var html = topbar('Rewards', 'Good decisions, rewarded');
+  html += '<div class="grid two">';
+  html += '<div class="card span2"><div class="tier"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div style="flex:1"><div class="mid-num">' + pts.tier.name + ' tier</div>' +
+    '<div class="small muted">' + pts.total + ' points this month · tiers reset every payday (fresh start!)</div></div></div>' +
+    (nxt ? '<div class="mt">' + bar(pts.total - tierFor(pts.total).min, nxt.min - tierFor(pts.total).min, '') + '<div class="small muted" style="margin-top:6px">' + (nxt.min - pts.total) + ' points to ' + nxt.emoji + ' ' + nxt.name + ' — which raises your Reward Pot share to ' + rewardPct(nxt.name) + '%</div></div>'
+      : '<p class="small">💎 Top tier! You\'re keeping the maximum ' + rewardPct('Diamond') + '% of your surplus as a reward.</p>') + '</div>';
+  // pot
+  html += '<div class="card"><h2>🎉 Reward Pot</h2><div class="big-num">' + fmtR(pot.balance) + '</div><div class="small muted">Ready to spend, guilt-free</div>' +
+    '<div class="nudge gold" style="cursor:default"><div class="e">📈</div><div><div class="t">On track for ~' + fmtR(proj.amount) + ' this month</div><div class="small muted">At ' + pts.tier.name + ' you keep ' + proj.pct + '% of whatever is left after spending. The rest goes to savings.</div></div></div>' +
+    '<div class="btns mt"><button class="btn gold" data-act="spendPot"' + (pot.balance <= 0 ? ' disabled' : '') + '>Spend from the pot</button></div>' +
+    (hist.length ? '<div class="sep"></div><h3>History</h3><div class="list">' + hist.slice(0, 6).map(function(r){
+      return '<div class="li"><div class="ico">' + r.tier.emoji + '</div><div class="main"><div class="t">' + esc(periodName(r.start)) + '</div><div class="s">Surplus ' + fmtR(r.surplus) + ' · ' + r.points + ' pts · ' + r.pct + '%</div></div><span class="amt ' + (r.reward ? 'pos' : 'muted') + '">' + (r.reward ? '+' + fmtR(r.reward) : '—') + '</span></div>';
+    }).join('') + '</div>' : '') + '</div>';
+  // streaks
+  var pr = partner(), ms = memberStreak(me().id), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
+  html += '<div class="card"><h2>🔥 Streaks</h2><div class="streaks"><div class="streak"><div class="n">' + ms.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">best ' + ms.best + '</div></div>' +
+    (ps ? '<div class="streak"><div class="n">' + ps.streak + '</div><div class="l">' + esc(pr.name) + '</div><div class="f">best ' + ps.best + '</div></div>' : '') +
+    '<div class="streak"><div class="n">' + cs.streak + '</div><div class="l">Together</div><div class="f">best ' + cs.best + '</div></div></div>' +
+    '<p class="small muted mt">🧊 Every 7-day streak earns a <b>streak freeze</b> (hold up to 2). If you miss a day, a freeze saves your streak automatically. You have ' + ms.freezes + '.</p>' +
+    weekDots(me().id) + (pr ? '<div class="tiny muted mt">' + esc(pr.name) + '</div>' + weekDots(pr.id) : '') + '</div>';
+  // money date
+  var wk = weekKey(todayStr()), md = byId('moneyDates', 'md-' + wk), mdLive = md && !md.deleted;
+  html += '<div class="card"><h2>☕ Weekly money date</h2><p class="small muted" style="margin-top:-4px">15 minutes, once a week, together. +50 points.</p><div class="checklist">' +
+    MD_ITEMS.map(function(t, i){ return '<label class="ci"><input type="checkbox" data-change="mdTick" data-i="' + i + '"' + ((mdLive || (ui.mdTicks && ui.mdTicks[i])) ? ' checked' : '') + (mdLive ? ' disabled' : '') + '><span>' + esc(t) + '</span></label>'; }).join('') +
+    '</div>' + (mdLive ? '<div class="nudge green" style="cursor:default"><div class="e">✅</div><div><div class="t">Done this week</div><div class="small muted">' + esc(md.note || 'See you next week.') + '</div></div></div>'
+      : '<label class="field"><span>One thing we\'ll do differently (optional)</span><input class="input" id="f-mdn" placeholder="e.g. Pack lunch Mon–Wed"></label><button class="btn primary block" data-act="doneMoneyDate">We did our money date</button>') + '</div>';
+  // breakdown
+  html += '<div class="card"><h2>Points this month</h2>' + (pts.items.length ? '<div class="list">' + pts.items.map(function(i){ return '<div class="li"><div class="ico">' + i.e + '</div><div class="main"><div class="t" style="white-space:normal">' + esc(i.label) + '</div></div><span class="amt">+' + i.pts + '</span></div>'; }).join('') + '</div>'
+    : '<div class="empty"><span class="e">✨</span>Check in today to earn your first points.</div>') + '</div>';
+  html += '<div class="card"><h2>How to earn</h2><div class="list small">' +
+    [['🔥','Daily check-in (log a spend or "no spend")','10 / day each'],['💞','Both of you check in the same day','+5'],['⭐','Every 7-day streak','+30'],['💪','Skip a purchase you wanted','1 per R10 (max 50)'],
+     ['🏦','Move money to savings','1 per R20 (max 100)'],['🚀','Save within 5 days of payday','+25'],['☕','Weekly money date','+50'],['🎯','A week under budget','+40'],['🏆','Reach a goal','+100'],['📄','Import a statement','+20 / month']]
+    .map(function(r){ return '<div class="li"><div class="ico">' + r[0] + '</div><div class="main"><div class="t" style="white-space:normal;font-weight:500">' + r[1] + '</div></div><span class="amt muted">' + r[2] + '</span></div>'; }).join('') +
+    '</div><p class="small muted mt">Tiers: 🥉 Bronze 0 · 🥈 Silver 400 · 🥇 Gold 900 · 💎 Diamond 1500. At month end, your tier decides how much of your surplus goes into the Reward Pot (' +
+    TIERS.map(function(t){ return t.name + ' ' + rewardPct(t.name) + '%'; }).join(', ') + '). Change the percentages in Settings.</p></div>';
+  html += '</div>';
+  return html;
+}
+CHANGES.mdTick = function(el){ ui.mdTicks = ui.mdTicks || {}; ui.mdTicks[el.getAttribute('data-i')] = el.checked; };
+ACTIONS.doneMoneyDate = function(){
+  var before = snapshot(), wk = weekKey(todayStr());
+  upsert('moneyDates', {id:'md-' + wk, date:todayStr(), by:me().id, note:($('#f-mdn') || {}).value || ''});
+  saveState(); ui.mdTicks = null; render(true); confetti(); celebrate(before);
+};
+ACTIONS.spendPot = function(){ openAdd({type:'expense', categoryId:'c-reward'}); };
+
+/* ===== Nestegg — 10-second add / edit sheet ===== */
+function parseAmount(s){
+  if (s == null) return NaN;
+  s = String(s).replace(/[R\s ]/gi, '');
+  if (s.indexOf(',') >= 0 && s.indexOf('.') >= 0) s = s.replace(/,/g, '');
+  else if (s.indexOf(',') >= 0) s = /,\d{1,2}$/.test(s) ? s.replace(',', '.') : s.replace(/,/g, '');
+  var n = parseFloat(s);
+  return isNaN(n) ? NaN : round2(n);
+}
+var TYPE_META = {
+  expense:{label:'Spent', icon:'🧾', note:'What was it? (optional)', save:'Save spend'},
+  income:{label:'Earned', icon:'💰', note:'e.g. Salary, side hustle', save:'Save income'},
+  saving:{label:'Saved', icon:'🏦', note:'e.g. Into GoSave pocket', save:'Save to savings'},
+  skip:{label:'Skipped 💪', icon:'💪', note:'What did you NOT buy?', save:'I skipped it!'},
+  ignore:{label:'Transfer', icon:'↔️', note:'Not counted in budget', save:'Save'}
+};
+function openAdd(opts){
+  opts = opts || {};
+  openSheet('add', {txType: opts.type || 'expense', amount: opts.amount ? String(opts.amount) : '', categoryId: opts.categoryId || null,
+    goalId: opts.goalId || null, note: opts.note || '', date: opts.date || todayStr(), memberId: opts.memberId || me().id, editId: opts.editId || null});
+}
+ACTIONS.quickAdd = function(){ openAdd({type:'expense'}); };
+ACTIONS.addType = function(el){
+  var t = el.getAttribute('data-id');
+  if (t === 'income' || t === 'expense' || t === 'saving' || t === 'skip') openAdd({type:t});
+};
+ACTIONS.editTx = function(el){
+  var t = byId('tx', el.getAttribute('data-id')); if (!t) return;
+  openAdd({type:t.type, amount:t.amount, categoryId:t.categoryId, goalId:t.goalId, note:t.note || '', date:t.date, memberId:t.memberId, editId:t.id});
+};
+function amountHtml(a){ return '<span class="cur">R</span>' + (a ? esc(a.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')) : '<span style="color:var(--ink-3)">0</span>'); }
+SHEETS.add = function(sh){
+  var types = sh.editId ? ['expense','income','saving','skip','ignore'] : ['expense','income','saving','skip'];
+  var meta = TYPE_META[sh.txType];
+  var html = '<div class="seg">' + types.map(function(t){ return '<button class="' + (sh.txType === t ? 'on' : '') + '" data-act="addSetType" data-id="' + t + '">' + TYPE_META[t].label + '</button>'; }).join('') + '</div>';
+  html += '<div class="amount-display" id="amt">' + amountHtml(sh.amount) + '</div>';
+  if (sh.txType === 'skip') html += '<p class="small muted center" style="margin:0 0 6px">Wanted something, didn\'t buy it? Log it — it counts as a win.</p>';
+  html += '<div class="keypad">' + ['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(function(k){ return '<button data-act="key" data-k="' + k + '">' + k + '</button>'; }).join('') + '</div>';
+  if (sh.txType === 'expense' || sh.txType === 'skip') {
+    var cats = liveCats().filter(function(c){ return sh.txType === 'expense' ? (c.group !== 'reward' || sh.categoryId === 'c-reward' || potBalance().balance > 0) : c.group !== 'reward'; });
+    html += '<div class="cats">' + cats.map(function(c){ return '<button class="cat ' + (sh.categoryId === c.id ? 'on' : '') + '" data-act="addCat" data-id="' + c.id + '"><span class="e">' + c.emoji + '</span>' + esc(c.name) + '</button>'; }).join('') + '</div>';
+  }
+  if (sh.txType === 'saving') {
+    var goals = live('goals');
+    html += '<div class="small strong muted">Towards a goal?</div><div class="chips mt"><button class="chip ' + (!sh.goalId ? 'on' : '') + '" data-act="addGoal" data-id="">General savings</button>' +
+      goals.map(function(g){ return '<button class="chip ' + (sh.goalId === g.id ? 'on' : '') + '" data-act="addGoal" data-id="' + g.id + '">' + esc(g.emoji + ' ' + g.name) + '</button>'; }).join('') + '</div>';
+  }
+  html += '<label class="field"><input class="input" id="f-note" data-input="addNote" placeholder="' + esc(meta.note) + '" value="' + esc(sh.note) + '"></label>';
+  html += '<div class="row"><label class="field" style="flex:1;margin:0"><input class="input" type="date" id="f-date" data-change="addDate" value="' + sh.date + '" max="' + addDays(todayStr(), 31) + '"></label>';
+  if (members().length > 1) html += '<div class="seg" style="flex:1">' + members().map(function(m){ return '<button class="' + (sh.memberId === m.id ? 'on' : '') + '" data-act="addWho" data-id="' + m.id + '">' + esc(m.name) + '</button>'; }).join('') + '</div>';
+  html += '</div><div class="btns sticky-save"><button class="btn ' + (sh.txType === 'skip' ? 'gold' : 'primary') + '" data-act="addSave">' + meta.save + '</button>' +
+    (sh.editId ? '<button class="btn danger" data-act="addDelete" style="flex:0 0 auto">Delete</button>' : '') + '</div>';
+  var orig = sh.editId && byId('tx', sh.editId);
+  if (orig && orig.raw) html += '<p class="tiny muted mt">Bank description: <span class="code">' + esc(orig.raw) + '</span></p>';
+  return html;
+};
+ACTIONS.addSetType = function(el){ ui.sheet.txType = el.getAttribute('data-id'); renderSheet(); };
+ACTIONS.addCat = function(el){ ui.sheet.categoryId = el.getAttribute('data-id'); $all('.cat').forEach(function(b){ b.classList.toggle('on', b === el); }); buzz(8); };
+ACTIONS.addGoal = function(el){ ui.sheet.goalId = el.getAttribute('data-id') || null; renderSheet(); };
+ACTIONS.addWho = function(el){ ui.sheet.memberId = el.getAttribute('data-id'); renderSheet(); };
+INPUTS.addNote = function(el){ ui.sheet.note = el.value; };
+CHANGES.addDate = function(el){ if (el.value) ui.sheet.date = el.value; };
+function pressKey(k){
+  var sh = ui.sheet; if (!sh || sh.type !== 'add') return;
+  var a = sh.amount || '';
+  if (k === '⌫') a = a.slice(0, -1);
+  else if (k === '.') { if (a.indexOf('.') < 0) a = (a || '0') + '.'; }
+  else {
+    if (a.indexOf('.') >= 0 && a.split('.')[1].length >= 2) return;
+    if (a.replace('.', '').length >= 9) return;
+    a = (a === '0' ? '' : a) + k;
+  }
+  sh.amount = a; var el = $('#amt'); if (el) el.innerHTML = amountHtml(a); buzz(6);
+}
+ACTIONS.key = function(el){ pressKey(el.getAttribute('data-k')); };
+document.addEventListener('keydown', function(ev){
+  if (!ui.sheet || ui.sheet.type !== 'add') { if (ev.key === 'Escape' && ui.sheet) closeSheet(); return; }
+  var tag = (ev.target.tagName || '').toLowerCase();
+  if (ev.key === 'Escape') { closeSheet(); return; }
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') { if (ev.key === 'Enter' && tag === 'input') ACTIONS.addSave(); return; }
+  if (/^[0-9]$/.test(ev.key)) { pressKey(ev.key); ev.preventDefault(); }
+  else if (ev.key === '.' || ev.key === ',') { pressKey('.'); ev.preventDefault(); }
+  else if (ev.key === 'Backspace') { pressKey('⌫'); ev.preventDefault(); }
+  else if (ev.key === 'Enter') { ACTIONS.addSave(); ev.preventDefault(); }
+});
+ACTIONS.addSave = function(){
+  var sh = ui.sheet, amount = parseAmount(sh.amount);
+  if (!(amount > 0)) { toast('Enter an amount'); return; }
+  if (sh.txType === 'expense' && !sh.categoryId) { toast('Pick a category'); return; }
+  var before = snapshot();
+  var orig = sh.editId ? byId('tx', sh.editId) : null;
+  var t = orig ? Object.assign({}, orig) : {id:'t-' + uid(), source:'manual', createdOn:todayStr(), createdAt:now()};
+  t.type = sh.txType; t.amount = amount; t.date = sh.date || todayStr(); t.memberId = sh.memberId || me().id;
+  t.note = (sh.note || '').trim();
+  t.categoryId = (sh.txType === 'expense' || sh.txType === 'skip') ? (sh.categoryId || 'c-other') : null;
+  t.goalId = sh.txType === 'saving' ? (sh.goalId || null) : null;
+  if (orig && orig.raw && orig.categoryId !== t.categoryId && t.type === 'expense') learnRule(orig.raw, t.categoryId);
+  upsert('tx', t);
+  var reached = null;
+  if (t.goalId) { var g = byId('goals', t.goalId); if (g && !g.reachedOn && goalSaved(g.id) >= g.target) { g = Object.assign({}, g); g.reachedOn = todayStr(); upsert('goals', g); reached = g; } }
+  saveState(); closeSheet(); render(true);
+  celebrate(before);
+  if (reached) { confetti(); setTimeout(function(){ toast('🏆 Goal reached: ' + reached.name + '!', 'gold'); }, 700); }
+  if (!orig && t.type === 'expense' && t.categoryId !== 'c-reward' && t.date >= currentPeriod()) {
+    var c = cat(t.categoryId), s = periodSummary(currentPeriod()), sp = s.byCat[c.id] || 0;
+    if (c.budget > 0) setTimeout(function(){ toast(c.emoji + ' ' + c.name + ': ' + (c.budget - sp >= 0 ? fmtR(c.budget - sp) + ' left' : fmtR(sp - c.budget) + ' over budget')); }, 400);
+  }
+  if (!orig && t.type === 'skip') setTimeout(function(){ toast('💪 ' + fmtR(t.amount) + ' stayed in your pocket'); }, 400);
+};
+ACTIONS.addDelete = function(){
+  if (!confirmBox('Delete this transaction?')) return;
+  removeItem('tx', ui.sheet.editId); saveState(); closeSheet(); render(true); toast('Deleted');
+};
+
+/* ===== Nestegg — onboarding, household, settings, reminders, backup ===== */
+function viewOnboarding(){
+  var o = ui.ob, html = '<div class="ob">';
+  if (o.step > 0 && o.step < 9) html += '<div class="steps">' + [1,2].map(function(i){ return '<i class="' + (o.step >= i ? 'on' : '') + '"></i>'; }).join('') + '</div>';
+  if (o.step === 0) {
+    html += '<div class="logo">🪺</div><h1>Nestegg</h1><p class="lead">Budget together. Build the habit. Grow your nest egg.</p>' +
+      '<button class="choice" data-act="obGo" data-id="1"><span class="e">🏡</span><div><div class="t">Set up our household</div><div class="s">First time — takes about a minute</div></div></button>' +
+      '<button class="choice" data-act="obJoin"><span class="e">☁️</span><div><div class="t">Join my partner\'s household</div><div class="s">Already set up on another device — sign in to Google Drive</div></div></button>' +
+      '<label class="choice" style="cursor:pointer"><span class="e">📦</span><div><div class="t">Restore from a backup file</div><div class="s">Moving to a new phone or PC</div></div><input type="file" accept=".json,application/json" data-change="restoreFile" class="hidden"></label>' +
+      '<p class="tiny muted center mt2">Your money data stays on your devices and your own Google Drive. No ads, no fees.</p>';
+  } else if (o.step === 1) {
+    html += '<h1>Who\'s budgeting?</h1><p class="lead">Two of you, one plan.</p><div class="card">' +
+      '<label class="field"><span>Your name</span><input class="input" data-input="ob" data-k="name1" value="' + esc(o.name1 || '') + '" placeholder="e.g. Eli"></label>' +
+      '<label class="field"><span>Your partner\'s name</span><input class="input" data-input="ob" data-k="name2" value="' + esc(o.name2 || '') + '" placeholder="e.g. your wife\'s name"></label>' +
+      '<label class="field"><span>Budget month starts on day</span><select class="input" data-change="obSel" data-k="payday">' +
+      Array.apply(null, Array(28)).map(function(_, i){ var d = i + 1; return '<option value="' + d + '"' + ((o.payday || 26) == d ? ' selected' : '') + '>' + d + '</option>'; }).join('') +
+      '</select></label><p class="small muted" style="margin-top:-4px">Start the month on the <b>first</b> payday. With your pay on the 26th and hers around the 30th/1st, the 26th works best — both salaries land in the same budget month.</p></div>' +
+      '<div class="btns mt"><button class="btn" data-act="obGo" data-id="0">Back</button><button class="btn primary" data-act="obGo" data-id="2">Next</button></div>';
+  } else if (o.step === 2) {
+    html += '<h1>What comes in?</h1><p class="lead">Take-home pay after tax. Rough is fine — you can change it later.</p><div class="card">' +
+      '<label class="field"><span>' + esc(o.name1 || 'You') + ' — monthly take-home (R)</span><input class="input" inputmode="decimal" data-input="ob" data-k="income1" value="' + esc(o.income1 || '') + '" placeholder="0"></label>' +
+      '<label class="field"><span>' + esc(o.name2 || 'Partner') + ' — monthly take-home (R)</span><input class="input" inputmode="decimal" data-input="ob" data-k="income2" value="' + esc(o.income2 || '') + '" placeholder="0"></label>' +
+      '<label class="row" style="margin-top:14px;gap:12px"><span class="toggle"><input type="checkbox" data-change="obChk" data-k="quick"' + (o.quick !== false ? ' checked' : '') + '><span></span></span><span class="small"><b>Give us a starter budget</b><br><span class="muted">Splits your income across typical SA categories, with 10% to savings. Importing statements later makes it more accurate.</span></span></label></div>' +
+      '<div class="btns mt"><button class="btn" data-act="obGo" data-id="1">Back</button><button class="btn primary" data-act="obFinish">Start budgeting 🎉</button></div>';
+  } else if (o.step === 9) {
+    html += '<div class="logo">☁️</div><h1>Join with Google Drive</h1>';
+    if (!Drive.clientId()) {
+      html += '<p class="lead">This copy of the app isn\'t connected to Google yet. Paste the Client ID from the setup guide (step 3).</p><div class="card"><label class="field"><span>Google OAuth Client ID</span><input class="input" id="f-cid" placeholder="xxxx.apps.googleusercontent.com"></label>' +
+        '<button class="btn primary block" data-act="obSaveCid">Save and continue</button></div>';
+    } else if (Drive.tokenValid() && device.joinError) {
+      html += '<p class="lead">' + esc(device.joinError) + '</p><button class="btn primary block" data-act="obJoinSync">Try again</button>';
+    } else {
+      html += '<p class="lead">Sign in with the <b>same Google account</b> your partner connected. Your household will download to this device.</p><button class="btn primary block" data-act="obJoinSignIn">Sign in with Google</button>';
+    }
+    html += '<button class="btn ghost block mt" data-act="obGo" data-id="0">Back</button>';
+  }
+  return html + '</div>';
+}
+INPUTS.ob = function(el){ ui.ob[el.getAttribute('data-k')] = el.value; };
+CHANGES.obSel = function(el){ ui.ob[el.getAttribute('data-k')] = +el.value; };
+CHANGES.obChk = function(el){ ui.ob[el.getAttribute('data-k')] = el.checked; };
+ACTIONS.obGo = function(el){
+  var s = +el.getAttribute('data-id');
+  if (s === 2 && !(ui.ob.name1 || '').trim()) { toast('Add your name'); return; }
+  ui.ob.step = s; render(); window.scrollTo(0,0);
+};
+ACTIONS.obFinish = function(){
+  var o = ui.ob;
+  createHousehold({name1:(o.name1||'').trim() || 'Me', name2:(o.name2||'').trim() || 'Partner', payday:o.payday || 26,
+    income1:parseAmount(o.income1) || 0, income2:parseAmount(o.income2) || 0, quickBudget:o.quick !== false, whoAmI:'m1'});
+  saveState(); ui.tab = 'home'; render(); confetti();
+  openSheet('welcome');
+};
+SHEETS.welcome = function(){
+  return '<h2>🎉 Welcome to Nestegg, ' + esc(me().name) + '!</h2><p class="muted">Three things make this work:</p>' +
+    '<div class="nudge"><div class="e">🔥</div><div><div class="t">Check in every day</div><div class="small muted">Log a spend, or tap "No spend today". 10 seconds. Keep the streak alive.</div></div></div>' +
+    '<div class="nudge"><div class="e">💪</div><div><div class="t">Log the things you DON\'T buy</div><div class="small muted">Skipped purchases earn points and pile up as "money not spent".</div></div></div>' +
+    '<div class="nudge"><div class="e">☕</div><div><div class="t">Have a weekly money date</div><div class="small muted">15 minutes together. Your surplus becomes a guilt-free Reward Pot.</div></div></div>' +
+    '<div class="btns mt"><button class="btn primary" data-act="welcomeImport">📄 Import statements</button><button class="btn" data-act="welcomeStart">Start logging</button></div>' +
+    '<p class="tiny muted mt">Next: set up Google Drive sync in ⚙️ Settings so ' + esc(partner() ? partner().name : 'your partner') + ' can join from her phone.</p>';
+};
+ACTIONS.welcomeImport = function(){ closeSheet(); openView('import'); };
+ACTIONS.welcomeStart = function(){ closeSheet(); openAdd({type:'expense'}); };
+ACTIONS.obJoin = function(){ ui.ob.step = 9; device.joining = true; saveDevice(); render(); };
+ACTIONS.obSaveCid = function(){ var v = $('#f-cid').value.trim(); if (!v) return; device.clientId = v; saveDevice(); render(); };
+ACTIONS.obJoinSignIn = function(){ device.joining = true; saveDevice(); Drive.signIn(false); };
+ACTIONS.obJoinSync = function(){ runSync(true); };
+
+/* ---------- household settings ---------- */
+VIEWS.household = function(){
+  var h = state.household, ms = h.members;
+  var html = topbar('Household', 'Names, payday and income', {back:true, right:' '});
+  html += '<div class="card"><label class="field"><span>Household name</span><input class="input" id="h-name" value="' + esc(h.name) + '"></label>' +
+    ms.map(function(m){ return '<div class="sep"></div><label class="field"><span>Name</span><input class="input" id="h-n-' + m.id + '" value="' + esc(m.name) + '"></label>' +
+      '<label class="field"><span>' + esc(m.name) + ' — expected monthly take-home (R)</span><input class="input" inputmode="decimal" id="h-i-' + m.id + '" value="' + ((h.incomes||{})[m.id] || '') + '"></label>'; }).join('') +
+    '<div class="sep"></div><label class="field"><span>Budget month starts on day</span><input class="input" type="number" min="1" max="28" id="h-pd" value="' + h.periodStartDay + '"></label>' +
+    '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '</p></div>' +
+    '<div class="card mt"><h2>Reward Pot share by tier</h2><p class="small muted">The % of your month-end surplus you get to spend guilt-free. The rest is for savings.</p>' +
+    TIERS.map(function(t){ return '<label class="field"><span>' + t.emoji + ' ' + t.name + ' (%)</span><input class="input" type="number" min="0" max="100" id="h-rp-' + t.name + '" value="' + rewardPct(t.name) + '"></label>'; }).join('') + '</div>' +
+    '<button class="btn primary block mt" data-act="saveHousehold">Save</button>';
+  return html;
+};
+ACTIONS.saveHousehold = function(){
+  var h = JSON.parse(JSON.stringify(state.household));
+  h.name = $('#h-name').value.trim() || h.name;
+  h.members.forEach(function(m){ m.name = $('#h-n-' + m.id).value.trim() || m.name; h.incomes = h.incomes || {}; h.incomes[m.id] = parseAmount($('#h-i-' + m.id).value) || 0; });
+  h.periodStartDay = clamp(parseInt($('#h-pd').value, 10) || 1, 1, 28);
+  TIERS.forEach(function(t){ h.rewardPct[t.name] = clamp(parseInt($('#h-rp-' + t.name).value, 10) || 0, 0, 100); });
+  setHousehold(h); saveState(); toast('Saved ✓'); ui.view = null; render();
+};
+
+/* ---------- settings ---------- */
+VIEWS.settings = function(){
+  var connected = !!device.driveFileId;
+  var html = topbar('Settings', 'Nestegg ' + CONFIG.VERSION, {back:true, right:' '});
+  html += '<div class="grid two">';
+  html += '<div class="card"><h2>🏡 Household</h2><div class="list">' +
+    '<div class="li tap" data-act="view" data-id="household"><div class="main"><div class="t">' + esc(state.household.name) + '</div><div class="s">' + esc(members().map(function(m){ return m.name; }).join(' & ')) + ' · month starts on the ' + state.household.periodStartDay + 'th</div></div><span>›</span></div>' +
+    '<div class="li tap" data-act="switchMe"><div class="main"><div class="t">This device is ' + esc(me().name) + '\'s</div><div class="s">Tap to switch</div></div><span>›</span></div></div></div>';
+  // sync
+  html += '<div class="card"><h2>☁️ Sync with Google Drive</h2>';
+  if (!Drive.clientId()) {
+    html += '<p class="small muted">Not set up yet. Follow step 3 of the setup guide, then paste your Client ID here. Until then, everything is saved on this device only.</p>';
+  } else {
+    html += '<p class="small">' + (connected ? '✅ Connected' + (device.lastSync ? ' · last synced ' + timeAgo(device.lastSync) : '') : 'Not connected on this device.') + '</p>' +
+      (device.syncError ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
+      '<div class="btns">' + (connected ? '<button class="btn primary" data-act="syncNow">Sync now</button><button class="btn" data-act="driveDisconnect">Disconnect</button>' : '<button class="btn primary" data-act="driveConnect">Connect Google Drive</button>') + '</div>' +
+      '<label class="row mt" style="gap:12px"><span class="toggle"><input type="checkbox" data-change="autoSync"' + (device.autoSync ? ' checked' : '') + '><span></span></span><span class="small">Sync automatically when I open the app</span></label>';
+  }
+  html += '<details class="mt"><summary class="small muted">Google Client ID</summary><label class="field"><input class="input" id="f-cid2" value="' + esc(device.clientId || CONFIG.GOOGLE_CLIENT_ID) + '" placeholder="xxxx.apps.googleusercontent.com"></label><button class="btn sm" data-act="saveCid">Save Client ID</button>' +
+    '<p class="tiny muted">Redirect URI to register: <span class="code">' + esc(Drive.redirectUri()) + '</span></p></details></div>';
+  // import & backup
+  html += '<div class="card"><h2>📦 Data</h2><div class="list">' +
+    '<div class="li tap" data-act="view" data-id="import"><div class="ico">📄</div><div class="main"><div class="t">Import bank statements</div><div class="s">FNB, GoTyme, any CSV or PDF</div></div></div>' +
+    '<div class="li tap" data-act="exportBackup"><div class="ico">💾</div><div class="main"><div class="t">Export a backup</div><div class="s">One file with everything — keep it safe</div></div></div>' +
+    '<label class="li tap" style="cursor:pointer"><div class="ico">♻️</div><div class="main"><div class="t">Restore from backup</div><div class="s">Merges with what\'s here — nothing is lost</div></div><input type="file" accept=".json,application/json" data-change="restoreFile" class="hidden"></label>' +
+    '<div class="li tap" data-act="exportCsv"><div class="ico">📊</div><div class="main"><div class="t">Export transactions (CSV)</div><div class="s">Open in Excel or Google Sheets</div></div></div></div></div>';
+  // reminders
+  html += '<div class="card"><h2>⏰ Reminders</h2><p class="small muted">Habits stick when they\'re triggered at the same time daily. Add these to your phone calendar — free, and they work even when the app is closed.</p><div class="list">' +
+    REMINDERS.map(function(r, i){ return '<div class="li"><div class="ico">' + r.e + '</div><div class="main"><div class="t">' + esc(r.title) + '</div><div class="s">' + esc(r.when) + '</div></div><a class="btn sm" target="_blank" rel="noopener" href="' + esc(gcalLink(r)) + '">Google Cal</a></div>'; }).join('') +
+    '</div><button class="btn block mt" data-act="icsDownload">📅 Download all for iPhone / Outlook (.ics)</button></div>';
+  // rules
+  var rules = live('rules');
+  html += '<div class="card"><h2>🤖 Auto-categorise rules</h2><p class="small muted">Learned when you change a category on an imported transaction.</p>' +
+    (rules.length ? '<div class="list">' + rules.map(function(r){ return '<div class="li"><div class="ico">' + cat(r.categoryId).emoji + '</div><div class="main"><div class="t">' + esc(r.pattern) + '</div><div class="s">→ ' + esc(cat(r.categoryId).name) + '</div></div><button class="btn sm ghost" data-act="delRule" data-id="' + r.id + '">✕</button></div>'; }).join('') + '</div>'
+      : '<p class="small muted">None yet.</p>') + '</div>';
+  // appearance
+  html += '<div class="card"><h2>🎨 Appearance</h2><div class="seg">' + [['auto','Auto'],['light','Light'],['dark','Dark']].map(function(t){ return '<button class="' + (device.theme === t[0] ? 'on' : '') + '" data-act="setTheme" data-id="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="sep"></div><button class="btn danger block" data-act="resetDevice">Remove all data from this device</button><p class="tiny muted">Does not touch your Google Drive copy or backups.</p></div>';
+  html += '</div>';
+  return html;
+};
+function timeAgo(ms){
+  var s = Math.round((now() - ms) / 1000);
+  if (s < 60) return 'just now'; if (s < 3600) return Math.round(s/60) + ' min ago'; if (s < 86400) return Math.round(s/3600) + ' h ago';
+  return Math.round(s/86400) + ' days ago';
+}
+ACTIONS.setTheme = function(el){ device.theme = el.getAttribute('data-id'); saveDevice(); render(true); };
+ACTIONS.delRule = function(el){ removeItem('rules', el.getAttribute('data-id')); saveState(); render(true); };
+ACTIONS.saveCid = function(){ device.clientId = $('#f-cid2').value.trim(); saveDevice(); toast('Saved'); render(true); };
+CHANGES.autoSync = function(el){ device.autoSync = el.checked; saveDevice(); };
+ACTIONS.resetDevice = function(){
+  if (!confirmBox('Remove ALL Nestegg data from this device? Export a backup first if you are not syncing.')) return;
+  if (!confirmBox('Are you sure? This cannot be undone on this device.')) return;
+  localStorage.removeItem(LS_DATA); localStorage.removeItem(LS_DEVICE); location.reload();
+};
+ACTIONS.exportBackup = function(){
+  var data = JSON.stringify({app:'nestegg', exportedAt:new Date().toISOString(), data:state}, null, 1);
+  shareOrDownload('nestegg-backup-' + todayStr() + '.json', data, 'application/json');
+};
+ACTIONS.exportCsv = function(){
+  var rows = [['Date','Type','Category','Goal','Amount','Note','Who','Bank description']];
+  sortTx(live('tx')).forEach(function(t){
+    var g = t.goalId && byId('goals', t.goalId);
+    rows.push([t.date, t.type, t.categoryId ? cat(t.categoryId).name : '', g ? g.name : '', t.amount, t.note || '', (member(t.memberId) || {}).name || '', t.raw || '']);
+  });
+  var csv = rows.map(function(r){ return r.map(function(v){ v = String(v == null ? '' : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }).join(','); }).join('\n');
+  shareOrDownload('nestegg-transactions-' + todayStr() + '.csv', csv, 'text/csv');
+};
+CHANGES.restoreFile = function(el){
+  var f = el.files && el.files[0]; if (!f) return;
+  var r = new FileReader();
+  r.onload = function(){
+    try {
+      var j = JSON.parse(r.result), incoming = normalizeState(j.data || j);
+      if (!incoming.household) throw new Error('no household');
+      var hadHousehold = !!state.household;
+      state = hadHousehold ? mergeStates(state, incoming) : incoming;
+      saveState();
+      if (!hadHousehold) { ui.view = null; render(); openSheet('switchMe'); }
+      else render();
+      toast('Backup restored ✓ (' + live('tx').length + ' transactions)');
+    } catch(e) { toast('That file isn\'t a Nestegg backup'); }
+  };
+  r.readAsText(f);
+};
+
+/* ---------- reminders (free: Google Calendar links + .ics) ---------- */
+var REMINDERS = [
+  {e:'🔥', title:'Nestegg check-in (10 seconds)', when:'Every day at 20:00', rrule:'FREQ=DAILY', hour:20, min:0, dur:5, first:function(){ return todayStr(); }},
+  {e:'☕', title:'Money date together (15 min)', when:'Sundays at 19:00', rrule:'FREQ=WEEKLY;BYDAY=SU', hour:19, min:0, dur:15, first:function(){ var t = todayStr(), d = s2d(t).getDay(); return addDays(t, (7 - d) % 7); }},
+  {e:'🚀', title:'Payday: pay yourselves first', when:'Monthly on budget start day', rrule:'FREQ=MONTHLY', hour:9, min:0, dur:10, first:function(){ return nextPeriodStart(currentPeriod()); }}
+];
+function appUrl(){ return location.protocol.indexOf('http') === 0 ? location.origin + location.pathname : ''; }
+function calStamp(dateStr, h, m){ return dateStr.replace(/-/g, '') + 'T' + pad(h) + pad(m) + '00'; }
+function reminderEnd(r){ var mm = r.min + r.dur; return {h: r.hour + Math.floor(mm/60), m: mm % 60}; }
+function gcalLink(r){
+  var d = r.first(), e = reminderEnd(r);
+  return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(r.title) +
+    '&dates=' + calStamp(d, r.hour, r.min) + '/' + calStamp(d, e.h, e.m) + '&ctz=Africa/Johannesburg&recur=' + encodeURIComponent('RRULE:' + r.rrule) +
+    '&details=' + encodeURIComponent('Open Nestegg' + (appUrl() ? ': ' + appUrl() : ''));
+}
+ACTIONS.icsDownload = function(){
+  var lines = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//Nestegg//EN','CALSCALE:GREGORIAN',
+    'BEGIN:VTIMEZONE','TZID:Africa/Johannesburg','BEGIN:STANDARD','DTSTART:19700101T000000','TZOFFSETFROM:+0200','TZOFFSETTO:+0200','TZNAME:SAST','END:STANDARD','END:VTIMEZONE'];
+  REMINDERS.forEach(function(r, i){
+    var d = r.first(), e = reminderEnd(r);
+    lines.push('BEGIN:VEVENT','UID:nestegg-' + i + '-' + uid() + '@nestegg','DTSTAMP:' + calStamp(todayStr(), 0, 0) + 'Z',
+      'DTSTART;TZID=Africa/Johannesburg:' + calStamp(d, r.hour, r.min), 'DTEND;TZID=Africa/Johannesburg:' + calStamp(d, e.h, e.m),
+      'RRULE:' + r.rrule, 'SUMMARY:' + r.title, 'DESCRIPTION:Open Nestegg' + (appUrl() ? ' ' + appUrl() : ''),
+      'BEGIN:VALARM','ACTION:DISPLAY','DESCRIPTION:' + r.title,'TRIGGER:PT0M','END:VALARM','END:VEVENT');
+  });
+  lines.push('END:VCALENDAR');
+  download('nestegg-reminders.ics', lines.join('\r\n'), 'text/calendar');
+};
+
+/* ===== Nestegg — bank statement import (FNB, GoTyme, any CSV / PDF) ===== */
+var PDFJS_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+var KEYWORDS = [
+  ['c-eatingout', ['uber eats','ubereats','mr d','mrd food','mr delivery','kfc','mcdonald','mcd ','nando','steers','debonairs','wimpy','spur ','rocomamas','burger king','chicken licken','romans pizza','roman\'s pizza','pizza','mugg','vida e','starbucks','ocean basket','fishaways','galito','hungry lion','king pie','pie city','restaurant','bistro','cafe','coffee','tasha','col\'cacchio','panarottis','doppio','seattle coffee','krispy kreme','dominos','domino\'s','simply asia','sushi']],
+  ['c-groceries', ['checkers','shoprite','pick n pay','picknpay','pick \'n pay','pnp ','woolworths','woolies','spar','food lover','foodlovers','boxer','usave','u save','ok foods','ok minimark','cambridge food','fruit & veg','fruit and veg','butchery','bakery','sixty60','checkers60','pnp asap','makro food','food']],
+  ['c-transport', ['engen','shell',' bp ','sasol','totalenergies','total energies','caltex','astron','puma energy','fuel','petrol','garage','uber','bolt','didi','gautrain','taxi','etoll','e-toll','sanral','tollgate','toll plaza','parking','autozone','midas','tyre','car wash','putco','metrorail','rea vaya','a re yeng','greyhound','intercape','flysafair','airlink','lift airline','kulula']],
+  ['c-airtime', ['vodacom','mtn','cell c','cellc','telkom','rain ','afrihost','webafrica','vox ','airtime','data bundle','databundle','prepaid air','fnb connect','openserve','fibre']],
+  ['c-utilities', ['prepaid elec','electricity','city power','eskom','municipal','city of johannesburg','city of joburg','coj ','joburg water','johannesburg water','rand water','ekurhuleni','tshwane','city of cape town','ethekwini','rates','water & lights','water and lights']],
+  ['c-subs', ['netflix','showmax','dstv','multichoice','spotify','youtube','apple.com','itunes','google play','google one','disney','prime video','amazon prime','icloud','microsoft','office 365','chatgpt','openai','canva','deezer','apple music','tv licence','tv license']],
+  ['c-medical', ['dis-chem','dischem','pharmacy','pharm','chemist','doctor','dr ','hospital','netcare','mediclinic','life health','lifehealth','medical','clinic','pathcare','lancet','ampath','dentist','dental','optom','spec-savers','specsavers','physio']],
+  ['c-personal', ['clicks','salon','barber','hair','beauty','spa ','nail','cosmetic','perfume','sorbet']],
+  ['c-insurance', ['insurance','assurance','insure','old mutual','sanlam','liberty','outsurance','santam','hollard','miway','king price','discovery life','discovery insure','momentum','metropolitan','funeral','avbob','clientele','1life','assupol','budget ins','dial direct','first for women','auto & general']],
+  ['c-rent', [' rent',' rental','bond','home loan','homeloan','levy','levies','body corp','bodycorp','landlord','property man']],
+  ['c-debt', ['loan','credit card','card repay','repayment','store card','rcs','lewis','onecard','fnb card payment','vehicle finance','wesbank','mfc ','absa vaf','instalment','installment','debt']],
+  ['c-family', ['mukuru','mama money','hello paisa','hellopaisa','money transfer','send money','sendmoney','cash send','cashsend','ewallet','e-wallet','instant money']],
+  ['c-giving', ['church','tithe','offering','donation','afm ',' mission','ministr','zcc','apostolic','assembly','charity','foundation']],
+  ['c-school', ['school','creche','daycare','day care','university','unisa','college','tuition','varsity','stationery','uniform','academy','educat']],
+  ['c-clothing', ['mr price','mrp ','pep ','pepstores','ackermans','truworths','edgars','foschini','tfg','jet ','markham','sportscene','totalsports','h&m','zara','cotton on','legit','identity','exact ','skipper','superbalist','bash.com','shoe','studio 88','side step','relay jeans']],
+  ['c-shopping', ['takealot','makro','game ','incredible','hi-fi corp','hifi corp','builders','leroy','mr price home','mrp home','@home','sheet street','temu','shein','amazon','loot','dis-chem baby','cashbuild','chinese mall','china mall','hardware','ikea','yuppiechef','pna','cna']],
+  ['c-entertainment', ['ster-kinekor','sterkinekor','nu metro','numetro','computicket','ticketpro','webtickets','quicket','howler','steam','playstation','xbox','gold reef','montecasino','zoo','museum','bowling','golf','gym','virgin active','planet fitness']],
+  ['c-fees', ['fee','charge','service fee','admin fee','sms notif','notification','monthly acc','bank charges','commission','penalty','interest charged']],
+  ['c-cash', ['atm','cash withdrawal','cash wd','cashwithdrawal','withdrawal at','cash@till','cash back']]
+];
+var SAVING_WORDS = ['gosave','go save','savings pocket','save pocket','pocket','savings acc','to savings','money market','tfsa','tax free','tax-free','easy equities','easyequities','satrix','etfs','unit trust','allan gray','coronation','10x','sygnia','stash','fixed deposit','notice deposit','savings'];
+var TRANSFER_WORDS = ['transfer','trf','own acc','inter acc','interacc','inter-acc','from savings','from pocket','gosave','go save','pocket','reversal','refund','reversed'];
+var INCOME_WORDS = ['salary','sal ','payroll','wage','remuneration','pay ','bonus','commission','dividend','interest received','credit interest','rental income'];
+
+function prettyMerchant(desc){
+  var s = ' ' + String(desc || '') + ' ';
+  s = s.replace(/\b(pos|card|debit|credit|cheque|chq|internet|online|digital|fnb app|banking app|app)\b\s*(purchase|payment|pmt|order|transfer|trf|txn|transaction)s?\b/gi, ' ')
+    .replace(/\b(purchase|payment to|payment from|pmt to|paid to|received from|debit order|recurring|scheduled|immediate|instant|eft|magtape|ref:?|reference:?|nedbank|fnb|gotyme|tyme)\b/gi, ' ')
+    .replace(/\b\d{2}[\/\-.]\d{2}([\/\-.]\d{2,4})?\b/g, ' ')
+    .replace(/[*#]+\s*\d*/g, ' ').replace(/\b\d{4,}\b/g, ' ').replace(/\b[0-9x]{4}\s?[x*]{2,}\S*/gi, ' ')
+    .replace(/[^A-Za-z0-9&'@.\- ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) s = String(desc || '').trim();
+  s = s.toLowerCase().replace(/\b[a-z]/g, function(c){ return c.toUpperCase(); });
+  return s.slice(0, 40);
+}
+function merchantKey(desc){ return prettyMerchant(desc).toUpperCase().split(' ').filter(function(w){ return w.length > 1; }).slice(0, 3).join(' '); }
+function learnRule(raw, categoryId){
+  var k = merchantKey(raw); if (k.length < 3 || !categoryId) return;
+  var id = 'r-' + k.replace(/[^A-Z0-9]+/g, '-').toLowerCase();
+  upsert('rules', {id:id, pattern:k, categoryId:categoryId});
+}
+function hasAny(text, words){ for (var i=0;i<words.length;i++) if (text.indexOf(words[i]) >= 0) return true; return false; }
+function classify(desc, amt){
+  var d = ' ' + String(desc || '').toLowerCase() + ' ', key = merchantKey(desc), up = String(desc || '').toUpperCase();
+  var rules = live('rules');
+  for (var i=0;i<rules.length;i++) if (key.indexOf(rules[i].pattern) >= 0 || up.indexOf(rules[i].pattern) >= 0) {
+    return amt < 0 ? {type:'expense', categoryId:rules[i].categoryId, flag:false} : {type:'income', categoryId:null, flag:false};
+  }
+  if (amt > 0) {
+    if (hasAny(d, INCOME_WORDS)) return {type:'income', categoryId:null, flag:false};
+    if (hasAny(d, TRANSFER_WORDS)) return {type:'ignore', categoryId:null, flag:true};
+    return {type:'income', categoryId:null, flag:true};
+  }
+  if (hasAny(d, SAVING_WORDS)) return {type:'saving', categoryId:null, flag:true};
+  for (var k=0;k<KEYWORDS.length;k++) if (hasAny(d, KEYWORDS[k][1])) return {type:'expense', categoryId:KEYWORDS[k][0], flag:false};
+  if (hasAny(d, ['transfer','trf'])) return {type:'expense', categoryId:'c-other', flag:true};
+  return {type:'expense', categoryId:'c-other', flag:true};
+}
+
+/* ---------- parsing helpers ---------- */
+var MON = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,sept:8,oct:9,nov:10,dec:11};
+function mkDate(y, m, d){
+  if (y < 100) y += 2000;
+  if (m < 0 || m > 11 || d < 1 || d > 31 || y < 1990 || y > 2100) return null;
+  var dt = new Date(y, m, d); if (dt.getMonth() !== m) return null;
+  return d2s(dt);
+}
+function parseDateAny(s, yearHint){
+  if (!s) return null; s = String(s).trim().replace(/^['"]|['"]$/g, '');
+  var m;
+  if ((m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})(?:\b|T)/))) return mkDate(+m[1], +m[2]-1, +m[3]);
+  if ((m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})\b/))) return mkDate(+m[3], +m[2]-1, +m[1]);
+  if ((m = s.match(/^(\d{8})$/))) return mkDate(+m[1].slice(0,4), +m[1].slice(4,6)-1, +m[1].slice(6,8));
+  if ((m = s.match(/^(\d{1,2})[\s\-]*([A-Za-z]{3,9})\.?[\s\-,]*(\d{4}|\d{2})?\b/))) {
+    var mo = MON[m[2].toLowerCase().slice(0, m[2].toLowerCase() === 'sept' ? 4 : 3)]; if (mo === undefined) return null;
+    var y = m[3] ? +m[3] : (yearHint || new Date().getFullYear());
+    var r = mkDate(y, mo, +m[1]);
+    if (r && !m[3] && r > addDays(todayStr(), 3)) r = mkDate(y - 1, mo, +m[1]);
+    return r;
+  }
+  if ((m = s.match(/^([A-Za-z]{3,9})\.?\s+(\d{1,2}),?\s+(\d{4})\b/))) { var mo2 = MON[m[1].toLowerCase().slice(0,3)]; if (mo2 === undefined) return null; return mkDate(+m[3], mo2, +m[2]); }
+  return null;
+}
+function parseMoney(s, strict){
+  if (s == null) return NaN;
+  var t = String(s).trim().replace(/ /g, ' ');
+  if (!t) return NaN;
+  var neg = false;
+  if (/^\(.*\)$/.test(t)) { neg = true; t = t.slice(1, -1); }
+  var crdr = t.match(/\s*(cr|dr)\.?$/i);
+  if (crdr) { if (crdr[1].toLowerCase() === 'dr') neg = true; t = t.slice(0, crdr.index); }
+  t = t.replace(/^r\s*/i, '').replace(/\s*r$/i, '');
+  if (/^-\s*r?\s*/i.test(t)) { neg = !neg; t = t.replace(/^-\s*r?\s*/i, ''); }
+  else if (/-$/.test(t)) { neg = !neg; t = t.slice(0, -1); }
+  else if (/^\+/.test(t)) t = t.slice(1);
+  t = t.trim();
+  if (strict ? !/^\d{1,3}([ ,]?\d{3})*[.,]\d{2}$/.test(t) : !/^\d[\d ,]*([.,]\d{1,2})?$/.test(t)) return NaN;
+  if (/[.,]\d{2}$/.test(t)) { var dec = t.slice(-2); t = t.slice(0, -3).replace(/[ ,.]/g, '') + '.' + dec; }
+  else t = t.replace(/[ ,]/g, '');
+  var n = parseFloat(t); if (isNaN(n)) return NaN;
+  return neg ? -n : n;
+}
+function parseCSV(text){
+  text = text.replace(/^﻿/, '');
+  var first = text.split(/\r?\n/).slice(0, 20).join('\n');
+  var delims = [',', ';', '\t', '|'], best = ',', bestN = 0;
+  delims.forEach(function(d){ var n = first.split(d).length; if (n > bestN) { bestN = n; best = d; } });
+  var rows = [], row = [], cell = '', q = false;
+  for (var i=0;i<text.length;i++) {
+    var c = text[i];
+    if (q) { if (c === '"') { if (text[i+1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === best) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i+1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell); rows.push(row); }
+  return rows.map(function(r){ return r.map(function(x){ return x.trim().replace(/^'+/, ''); }); }).filter(function(r){ return r.some(function(x){ return x; }); });
+}
+function detectColumns(rows){
+  for (var i=0;i<Math.min(40, rows.length);i++) {
+    var r = rows[i].map(function(x){ return x.toLowerCase(); });
+    var date = r.findIndex(function(x){ return /date/.test(x) && !/value date|effective/.test(x); });
+    if (date < 0) date = r.findIndex(function(x){ return /date/.test(x); });
+    if (date < 0) continue;
+    var amount = r.findIndex(function(x){ return /^amount|amount$|amount \(|^value$/.test(x); });
+    var debit = r.findIndex(function(x){ return /debit|money out|withdraw|paid out/.test(x); });
+    var credit = r.findIndex(function(x){ return /credit|money in|deposit|paid in/.test(x); });
+    var desc = r.findIndex(function(x, j){ return j !== date && /desc|detail|narrat|reference|transaction|particular|merchant|payee/.test(x); });
+    var bal = r.findIndex(function(x){ return /balance/.test(x); });
+    if (amount >= 0 || debit >= 0 || credit >= 0) return {start:i+1, date:date, desc:desc, amount:amount, debit:debit, credit:credit, balance:bal};
+  }
+  // headerless: score columns
+  var sample = rows.filter(function(r){ return r.length >= 3; }).slice(0, 80);
+  if (!sample.length) return null;
+  var ncol = Math.max.apply(null, sample.map(function(r){ return r.length; })), stats = [];
+  for (var c=0;c<ncol;c++) {
+    var dates = 0, nums = 0, len = 0, vals = {};
+    sample.forEach(function(r){ var v = r[c] || ''; if (parseDateAny(v)) dates++; if (!isNaN(parseMoney(v))) nums++; len += v.length; vals[v] = 1; });
+    stats.push({c:c, dates:dates/sample.length, nums:nums/sample.length, len:len/sample.length, distinct:Object.keys(vals).length});
+  }
+  var dCol = stats.filter(function(s){ return s.dates > .5; }).sort(function(a,b){ return b.dates - a.dates; })[0];
+  if (!dCol) return null;
+  var numCols = stats.filter(function(s){ return s.c !== dCol.c && s.nums > .5 && s.distinct > 2; });
+  if (!numCols.length) return null;
+  var textCol = stats.filter(function(s){ return s.c !== dCol.c && s.nums < .5; }).sort(function(a,b){ return b.len - a.len; })[0];
+  var start = 0; while (start < rows.length && !parseDateAny(rows[start][dCol.c])) start++;
+  return {start:start, date:dCol.c, desc:textCol ? textCol.c : -1, amount:numCols[0].c, debit:-1, credit:-1, balance:numCols[1] ? numCols[1].c : -1};
+}
+function rowsFromCSV(rows, map){
+  var out = [];
+  for (var i=map.start;i<rows.length;i++) {
+    var r = rows[i], date = parseDateAny(r[map.date]); if (!date) continue;
+    var amt;
+    if (map.amount >= 0) amt = parseMoney(r[map.amount]);
+    else { var de = parseMoney(r[map.debit]), cr = parseMoney(r[map.credit]); amt = (isNaN(cr) ? 0 : Math.abs(cr)) - (isNaN(de) ? 0 : Math.abs(de)); }
+    if (isNaN(amt) || amt === 0) continue;
+    var desc = map.desc >= 0 ? r[map.desc] : r.filter(function(x, j){ return j !== map.date && j !== map.amount && j !== map.balance && isNaN(parseMoney(x)); }).join(' ');
+    out.push({date:date, desc:(desc || '').trim(), amount:round2(amt)});
+  }
+  return out;
+}
+
+/* ---------- PDF ---------- */
+function loadScript(src){
+  return new Promise(function(res, rej){
+    if (document.querySelector('script[src="' + src + '"]')) { res(); return; }
+    var s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = function(){ rej(new Error('Could not load PDF reader — are you online?')); };
+    document.head.appendChild(s);
+  });
+}
+function pdfLines(file){
+  return loadScript(PDFJS_URL).then(function(){
+    var lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    return file.arrayBuffer().then(function(buf){
+      function open(password){
+        return lib.getDocument({data:new Uint8Array(buf.slice(0)), password:password}).promise.catch(function(err){
+          if (err && err.name === 'PasswordException') {
+            var pw = window.prompt((password ? 'Wrong password. ' : '') + 'This statement is password-protected (often your ID number). The password is only used on this device:');
+            if (pw) return open(pw);
+            throw new Error('Password needed to read this PDF');
+          }
+          throw err;
+        });
+      }
+      return open();
+    });
+  }).then(function(pdf){
+    var pages = [];
+    for (var p=1;p<=pdf.numPages;p++) pages.push(pdf.getPage(p).then(function(pg){ return pg.getTextContent(); }));
+    return Promise.all(pages);
+  }).then(function(contents){
+    var lines = [];
+    contents.forEach(function(tc){
+      var items = tc.items.filter(function(it){ return it.str && it.str.trim(); }).map(function(it){ return {s:it.str, x:it.transform[4], y:it.transform[5], w:it.width || 0}; });
+      items.sort(function(a,b){ return Math.abs(b.y - a.y) > 2.5 ? b.y - a.y : a.x - b.x; });
+      var cur = null;
+      items.forEach(function(it){
+        if (!cur || Math.abs(cur.y - it.y) > 2.5) { cur = {y:it.y, items:[]}; lines.push(cur); }
+        cur.items.push(it);
+      });
+    });
+    return lines.map(function(l){
+      l.items.sort(function(a,b){ return a.x - b.x; });
+      var cells = [], last = null;
+      l.items.forEach(function(it){
+        if (last && it.x - (last.x + last.w) < 3) { last.s += (it.x - (last.x + last.w) > 0.8 ? ' ' : '') + it.s; last.w = it.x + it.w - last.x; }
+        else { last = {s:it.s, x:it.x, w:it.w}; cells.push(last); }
+      });
+      return cells.map(function(c){ return c.s.trim(); }).filter(Boolean);
+    });
+  });
+}
+function rowsFromPdfLines(lines){
+  var all = lines.map(function(c){ return c.join(' '); }).join(' '), ym = all.match(/\b(20\d{2})\b/), yearHint = ym ? +ym[1] : null;
+  var recs = [], lastWasTx = false, openBal = null;
+  lines.forEach(function(cells){
+    var text = cells.join(' '), di = -1, date = null, span = 1;
+    for (var i=0;i<Math.min(3, cells.length);i++) {
+      date = parseDateAny(cells[i], yearHint);
+      if (!date && cells[i+1]) { date = parseDateAny(cells[i] + ' ' + cells[i+1], yearHint); if (date) span = 2; }
+      if (date) { di = i; break; }
+    }
+    var money = [];
+    cells.forEach(function(c, j){ if (j > di + span - 1 && !isNaN(parseMoney(c, true))) money.push({j:j, v:parseMoney(c, true), raw:c}); });
+    if (/opening balance|balance brought|brought forward|previous balance/i.test(text) && money.length) { openBal = money[money.length-1].v; lastWasTx = false; return; }
+    if (!date || !money.length) {
+      if (lastWasTx && !money.length && !date && recs.length && text.length < 60 && !/page \d|statement|balance|total/i.test(text)) { recs[recs.length-1].desc += ' ' + text; }
+      lastWasTx = false; return;
+    }
+    if (/closing balance|carried forward|total/i.test(text)) { lastWasTx = false; return; }
+    var desc = cells.filter(function(c, j){ return (j < di || j > di + span - 1) && !money.some(function(m){ return m.j === j; }); }).join(' ').trim();
+    var bal = money.length >= 2 ? money[money.length-1].v : null;
+    var cands = money.length >= 2 ? money.slice(0, -1) : money;
+    var pick = cands.filter(function(m){ return m.v !== 0; })[0] || cands[0];
+    var explicit = /^\(|-|dr\.?$/i.test(pick.raw.trim()) ? -1 : /cr\.?$/i.test(pick.raw.trim()) ? 1 : 0;
+    var col = cands.length >= 2 ? cands.indexOf(pick) : -1;
+    recs.push({date:date, desc:desc, abs:Math.abs(pick.v), explicit:explicit, bal:bal, col:col, ncand:cands.length});
+    lastWasTx = true;
+  });
+  if (!recs.length) return [];
+  var asc = recs[0].date <= recs[recs.length-1].date;
+  return recs.map(function(r, i){
+    var prevIdx = asc ? i - 1 : i + 1, prevBal = recs[prevIdx] ? recs[prevIdx].bal : (asc && i === 0 ? openBal : null), sign = 0;
+    if (r.bal != null && prevBal != null) { var delta = r.bal - prevBal; if (Math.abs(Math.abs(delta) - r.abs) < 0.02) sign = delta < 0 ? -1 : 1; }
+    if (!sign && r.explicit) sign = r.explicit;
+    if (!sign && r.ncand >= 2 && r.col >= 0) sign = r.col === 0 ? 1 : -1;
+    if (!sign) sign = hasAny(' ' + r.desc.toLowerCase() + ' ', INCOME_WORDS.concat(['received','deposit','credit'])) ? 1 : -1;
+    return {date:r.date, desc:r.desc, amount:round2(sign * r.abs)};
+  });
+}
+
+/* ---------- build preview ---------- */
+function buildPreview(parsed, fileNames){
+  var existing = {};
+  state.tx.forEach(function(t){ if (t.importKey && !t.deleted) existing[t.importKey] = true; });
+  var counts = {}, rows = [];
+  parsed.forEach(function(p){
+    var base = p.date + '|' + Math.abs(p.amount).toFixed(2) + '|' + merchantKey(p.desc).slice(0, 24);
+    counts[base] = (counts[base] || 0) + 1;
+    var key = base + '#' + counts[base];
+    var cl = classify(p.desc, p.amount);
+    rows.push({key:key, date:p.date, desc:p.desc, amount:p.amount, type:cl.type, categoryId:cl.categoryId || (p.amount < 0 ? 'c-other' : null),
+      flag:cl.flag, dup:!!existing[key], include:!existing[key], touched:false});
+  });
+  rows.sort(function(a,b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
+  return {rows:rows, files:fileNames, memberId:me().id, show:'all'};
+}
+VIEWS['import'] = function(){
+  var imp = ui.imp, html = topbar('Import statements', 'Stays on your device', {back:true, backAct:'impBack', right:' '});
+  if (imp && imp.busy) return html + '<div class="card"><div class="empty"><span class="e">⏳</span>' + esc(imp.busy) + '</div></div>';
+  if (imp && imp.mapping) return html + viewMapping(imp.mapping);
+  if (!imp || !imp.rows) {
+    html += '<div class="grid two"><div class="card span2"><h2>📄 Choose statement files</h2><p class="small muted">CSV or PDF. You can pick several months at once — duplicates are skipped automatically, so re-importing is safe.</p>' +
+      '<label class="btn primary block" style="cursor:pointer">Choose files<input type="file" multiple accept=".csv,.txt,.pdf,text/csv,application/pdf" data-change="impFiles" class="hidden"></label>' +
+      (imp && imp.error ? '<p class="small neg mt">' + esc(imp.error) + '</p>' : '') + '</div>' +
+      '<div class="card"><h2>FNB</h2><p class="small muted">On FNB Online Banking (PC), open your account → <b>Transaction History</b> → choose the date range → <b>Download</b> as <b>CSV</b>. CSV gives the cleanest import. PDF statements also work.</p></div>' +
+      '<div class="card"><h2>GoTyme</h2><p class="small muted">In the GoTyme app, request or download your <b>statement (PDF)</b> and save it to your phone or email it to yourself. If the PDF is password-protected you\'ll be asked for the password — it never leaves this device.</p></div>' +
+      '<div class="card span2"><h2>Excel file?</h2><p class="small muted">Open it in Excel or Google Sheets and use <b>Save as / Download → CSV</b>, then choose that file here.</p></div></div>';
+    return html;
+  }
+  var rows = imp.rows, inc = rows.filter(function(r){ return r.include; }), dups = rows.filter(function(r){ return r.dup; }).length, flags = rows.filter(function(r){ return r.flag && r.include; }).length;
+  var dates = rows.map(function(r){ return r.date; }).sort();
+  html += '<div class="card"><div class="row between wrap"><div><div class="strong">' + rows.length + ' transactions found</div><div class="small muted">' + (dates.length ? fmtDate(dates[0], true) + ' – ' + fmtDate(dates[dates.length-1], true) : '') +
+    (dups ? ' · ' + dups + ' already imported (skipped)' : '') + '</div></div>' +
+    '<div class="row"><span class="small muted">Whose account?</span><select class="input" style="width:auto" data-change="impWho">' + members().map(function(m){ return '<option value="' + m.id + '"' + (imp.memberId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div></div>' +
+    (flags ? '<div class="nudge gold" style="cursor:default"><div class="e">👀</div><div><div class="t">' + flags + ' need a quick look</div><div class="small muted">Highlighted rows are guesses — mostly transfers between your own accounts (choose "Transfer" so they don\'t count as income or spending). Fix one shop and the same shop updates everywhere.</div></div></div>' : '') +
+    '<div class="chips mt"><button class="chip ' + (imp.show === 'all' ? 'on' : '') + '" data-act="impShow" data-id="all">All</button><button class="chip ' + (imp.show === 'flag' ? 'on' : '') + '" data-act="impShow" data-id="flag">Needs a look (' + flags + ')</button><button class="chip ' + (imp.show === 'other' ? 'on' : '') + '" data-act="impShow" data-id="other">Uncategorised</button></div></div>';
+  var shown = rows.map(function(r, i){ return {r:r, i:i}; }).filter(function(x){ return imp.show === 'flag' ? x.r.flag && x.r.include : imp.show === 'other' ? x.r.type === 'expense' && x.r.categoryId === 'c-other' : true; });
+  var catOpts = spendCats();
+  html += '<div class="tbl-wrap mt"><table class="tbl imp"><tr><th></th><th>Transaction</th><th>Type &amp; category</th></tr>' +
+    shown.slice(0, imp.limit || 300).map(function(x){
+      var r = x.r;
+      return '<tr class="' + (r.include ? '' : 'off') + (r.flag && r.include ? ' flag' : '') + '"><td><input type="checkbox" data-change="impInc" data-i="' + x.i + '"' + (r.include ? ' checked' : '') + '></td>' +
+        '<td class="desc" title="' + esc(r.desc) + '"><div class="strong" style="overflow:hidden;text-overflow:ellipsis">' + esc(prettyMerchant(r.desc)) + '</div><div class="tiny muted">' + fmtDate(r.date) + ' · <span class="' + (r.amount > 0 ? 'pos' : '') + '">' + (r.amount > 0 ? '+' : '−') + fmtR(Math.abs(r.amount), true) + '</span>' + (r.dup ? ' · <span class="pill">already in</span>' : '') + '</div></td>' +
+        '<td><select data-change="impType" data-i="' + x.i + '">' + [['expense','Spent'],['income','Income'],['saving','Saved'],['ignore','Transfer']].map(function(t){ return '<option value="' + t[0] + '"' + (r.type === t[0] ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('') + '</select>' +
+        (r.type === 'expense' ? '<select data-change="impCat" data-i="' + x.i + '" style="margin-top:4px">' + catOpts.map(function(c){ return '<option value="' + c.id + '"' + (r.categoryId === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</select>' : '') + '</td></tr>';
+    }).join('') + '</table></div>' + (shown.length > (imp.limit || 300) ? '<button class="btn block mt" data-act="impMore">Show more (' + (shown.length - (imp.limit || 300)) + ')</button>' : '');
+  html += '<div class="btns mt"><button class="btn" data-act="impCancel">Cancel</button><button class="btn primary" data-act="impGo">Import ' + inc.length + ' transaction' + (inc.length===1?'':'s') + '</button></div>';
+  return html;
+};
+function viewMapping(mp){
+  var rows = mp.rows.slice(0, 12), ncol = Math.max.apply(null, rows.map(function(r){ return r.length; }));
+  function sel(k, label, optional){
+    var html = '<label class="field"><span>' + label + '</span><select class="input" data-change="mapSel" data-k="' + k + '">' + (optional ? '<option value="-1">— none —</option>' : '');
+    for (var c=0;c<ncol;c++) { var sample = (rows.filter(function(r){ return r[c]; })[3] || rows[0])[c] || ''; html += '<option value="' + c + '"' + (mp.map[k] === c ? ' selected' : '') + '>Column ' + (c+1) + ': ' + esc(String(sample).slice(0, 28)) + '</option>'; }
+    return html + '</select></label>';
+  }
+  return '<div class="card"><h2>Help me read this file</h2><p class="small muted">I couldn\'t tell which column is which. Pick them below — check the preview.</p>' +
+    sel('date', 'Date column') + sel('desc', 'Description column', true) + sel('amount', 'Amount column (money in positive, money out negative)', true) +
+    '<p class="small muted">Or, if money in and out are in separate columns:</p>' + sel('credit', 'Money in column', true) + sel('debit', 'Money out column', true) +
+    '<div class="tbl-wrap"><table class="tbl">' + rows.map(function(r){ return '<tr>' + r.map(function(c){ return '<td>' + esc(String(c).slice(0, 24)) + '</td>'; }).join('') + '</tr>'; }).join('') + '</table></div>' +
+    '<div class="btns mt"><button class="btn" data-act="impCancel">Cancel</button><button class="btn primary" data-act="mapGo">Continue</button></div></div>';
+}
+CHANGES.mapSel = function(el){ ui.imp.mapping.map[el.getAttribute('data-k')] = +el.value; };
+ACTIONS.mapGo = function(){
+  var mp = ui.imp.mapping, m = mp.map;
+  if (m.amount < 0 && m.debit < 0 && m.credit < 0) { toast('Choose an amount column'); return; }
+  var start = 0; while (start < mp.rows.length && !parseDateAny(mp.rows[start][m.date])) start++;
+  m.start = start; m.balance = -1;
+  var parsed = rowsFromCSV(mp.rows, m).concat(mp.others || []);
+  if (!parsed.length) { toast('No transactions found with those columns'); return; }
+  ui.imp = buildPreview(parsed, mp.files); render();
+};
+ACTIONS.impBack = function(){ if (ui.imp && ui.imp.rows && !confirmBox('Leave without importing?')) return; ui.imp = null; ui.view = null; render(); };
+ACTIONS.impCancel = function(){ ui.imp = null; render(); };
+ACTIONS.impShow = function(el){ ui.imp.show = el.getAttribute('data-id'); render(true); };
+ACTIONS.impMore = function(){ ui.imp.limit = (ui.imp.limit || 300) + 300; render(true); };
+CHANGES.impWho = function(el){ ui.imp.memberId = el.value; };
+CHANGES.impInc = function(el){ var r = ui.imp.rows[+el.getAttribute('data-i')]; r.include = el.checked; el.closest('tr').classList.toggle('off', !el.checked); };
+CHANGES.impType = function(el){
+  var r = ui.imp.rows[+el.getAttribute('data-i')]; r.type = el.value; r.flag = false; r.touched = true;
+  if (r.type === 'expense' && !r.categoryId) r.categoryId = 'c-other';
+  render(true);
+};
+CHANGES.impCat = function(el){
+  var i = +el.getAttribute('data-i'), r = ui.imp.rows[i], k = merchantKey(r.desc), n = 0;
+  r.categoryId = el.value; r.flag = false; r.touched = true;
+  ui.imp.rows.forEach(function(o, j){ if (j !== i && !o.touched && o.type === 'expense' && merchantKey(o.desc) === k) { o.categoryId = el.value; o.flag = false; n++; } });
+  if (n) toast('Also updated ' + n + ' more from ' + prettyMerchant(r.desc));
+  render(true);
+};
+CHANGES.impFiles = function(el){
+  var files = Array.prototype.slice.call(el.files || []); if (!files.length) return;
+  ui.imp = {busy:'Reading ' + files.length + ' file' + (files.length===1?'':'s') + '…'}; render();
+  var parsed = [], pending = null, names = files.map(function(f){ return f.name; });
+  var chain = Promise.resolve();
+  files.forEach(function(f){
+    chain = chain.then(function(){
+      if (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') {
+        return pdfLines(f).then(function(lines){ var r = rowsFromPdfLines(lines); if (!r.length) throw new Error('No transactions found in ' + f.name + '. Try a CSV export, or send the developer a sample.'); parsed = parsed.concat(r); });
+      }
+      if (/\.xlsx?$/i.test(f.name)) throw new Error(f.name + ' is an Excel file — save it as CSV first.');
+      return f.text().then(function(text){
+        var rows = parseCSV(text), map = detectColumns(rows);
+        var r = map ? rowsFromCSV(rows, map) : [];
+        if (!r.length) { pending = {rows:rows, map:{date:0, desc:-1, amount:-1, debit:-1, credit:-1}, files:names}; return; }
+        parsed = parsed.concat(r);
+      });
+    });
+  });
+  chain.then(function(){
+    if (pending) { pending.others = parsed; ui.imp = {mapping:pending}; render(); return; }
+    if (!parsed.length) throw new Error('No transactions found in those files.');
+    ui.imp = buildPreview(parsed, names); render();
+  }).catch(function(e){ ui.imp = {error:e.message || String(e)}; render(); });
+};
+ACTIONS.impGo = function(){
+  var imp = ui.imp, before = snapshot(), n = 0, t = todayStr(), learned = {};
+  imp.rows.forEach(function(r){
+    if (!r.include || r.dup) return;
+    if (r.touched && r.type === 'expense' && r.categoryId && r.categoryId !== 'c-other') { var k = merchantKey(r.desc); if (!learned[k]) { learnRule(r.desc, r.categoryId); learned[k] = 1; } }
+    var tx = {id:'t-' + uid(), date:r.date, amount:Math.abs(r.amount), type:r.type, categoryId:r.type === 'expense' ? (r.categoryId || 'c-other') : null, goalId:null,
+      memberId:imp.memberId, note:prettyMerchant(r.desc), raw:r.desc, source:'import', importKey:r.key, createdOn:t, createdAt:now()};
+    upsert('tx', tx); n++;
+  });
+  saveState(); ui.imp = null; ui.view = null; ui.tab = 'budget'; render(); window.scrollTo(0,0);
+  celebrate(before);
+  openSheet('imported', {n:n});
+};
+SHEETS.imported = function(sh){
+  return '<h2>📄 Imported ' + sh.n + ' transactions</h2><p class="muted">Your history is in. Now let it shape a realistic budget.</p>' +
+    '<div class="btns"><button class="btn primary" data-act="impSuggest">✨ Suggest a budget from this</button><button class="btn" data-act="closeSheet">Later</button></div>';
+};
+ACTIONS.impSuggest = function(){ closeSheet(); ACTIONS.suggestBudget(); };
+
+/* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
+var Drive = {
+  SCOPE: 'https://www.googleapis.com/auth/drive.file',
+  clientId: function(){ return (device.clientId || CONFIG.GOOGLE_CLIENT_ID || '').trim(); },
+  redirectUri: function(){ return location.origin + location.pathname.replace(/index\.html$/, ''); },
+  tokenValid: function(){ return !!device.token && device.tokenExp > now() + 60000; },
+  signIn: function(silent){
+    if (!this.clientId()) { toast('Add your Google Client ID in Settings first'); return; }
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') { toast('Sync needs the app to be opened from its web address (https)'); return; }
+    var st = uid();
+    try { sessionStorage.setItem('nestegg-oauth-state', st); localStorage.setItem('nestegg-oauth-state', st); } catch(e){}
+    var p = {client_id:this.clientId(), redirect_uri:this.redirectUri(), response_type:'token', scope:this.SCOPE, include_granted_scopes:'true', state:st + (silent ? '.s' : '')};
+    if (silent) p.prompt = 'none';
+    if (device.driveEmail) p.login_hint = device.driveEmail;
+    location.href = 'https://accounts.google.com/o/oauth2/v2/auth?' + Object.keys(p).map(function(k){ return k + '=' + encodeURIComponent(p[k]); }).join('&');
+  },
+  handleRedirect: function(){
+    var h = location.hash;
+    if (!h || (h.indexOf('access_token=') < 0 && h.indexOf('error=') < 0)) return null;
+    var q = {}; h.slice(1).split('&').forEach(function(kv){ var i = kv.indexOf('='); q[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i+1).replace(/\+/g, ' ')); });
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(e){ location.hash = ''; }
+    var saved = null; try { saved = sessionStorage.getItem('nestegg-oauth-state') || localStorage.getItem('nestegg-oauth-state'); } catch(e){}
+    var st = (q.state || '').replace(/\.s$/, ''), silent = /\.s$/.test(q.state || '');
+    if (saved && st !== saved) { device.syncError = 'Sign-in check failed — please try again.'; saveDevice(); return 'error'; }
+    if (q.error) { if (!silent) { device.syncError = 'Google sign-in was cancelled or blocked (' + q.error + ').'; } saveDevice(); return silent ? 'silent-fail' : 'error'; }
+    device.token = q.access_token; device.tokenExp = now() + (parseInt(q.expires_in, 10) || 3600) * 1000; device.syncError = '';
+    saveDevice(); return 'ok';
+  },
+  api: function(url, opts){
+    opts = opts || {}; opts.headers = Object.assign({Authorization:'Bearer ' + device.token}, opts.headers || {});
+    return fetch(url, opts).then(function(r){
+      if (r.status === 401) { device.token = null; device.tokenExp = 0; saveDevice(); var e = new Error('auth'); e.auth = true; throw e; }
+      if (!r.ok) return r.text().then(function(t){ throw new Error('Drive error ' + r.status + ': ' + t.slice(0, 160)); });
+      return r;
+    });
+  },
+  findFile: function(){
+    var self = this;
+    if (device.driveFileId) {
+      return this.api('https://www.googleapis.com/drive/v3/files/' + device.driveFileId + '?fields=id,trashed').then(function(r){ return r.json(); })
+        .then(function(f){ return f.trashed ? self.search() : f.id; }).catch(function(e){ if (e.auth) throw e; return self.search(); });
+    }
+    return this.search();
+  },
+  search: function(){
+    var q = encodeURIComponent("name='" + CONFIG.DATA_FILE + "' and trashed=false");
+    return this.api('https://www.googleapis.com/drive/v3/files?q=' + q + '&spaces=drive&orderBy=modifiedTime%20desc&fields=files(id,modifiedTime)').then(function(r){ return r.json(); })
+      .then(function(j){ return j.files && j.files.length ? j.files[0].id : null; });
+  },
+  download: function(id){ return this.api('https://www.googleapis.com/drive/v3/files/' + id + '?alt=media').then(function(r){ return r.text(); }); },
+  create: function(text){
+    var b = 'nestegg' + uid(), meta = {name:CONFIG.DATA_FILE, mimeType:'application/json', description:'Nestegg household budget data. Do not edit by hand.'};
+    var body = '--' + b + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify(meta) + '\r\n--' + b + '\r\nContent-Type: application/json\r\n\r\n' + text + '\r\n--' + b + '--';
+    return this.api('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {method:'POST', headers:{'Content-Type':'multipart/related; boundary=' + b}, body:body})
+      .then(function(r){ return r.json(); }).then(function(j){ return j.id; });
+  },
+  update: function(id, text){
+    return this.api('https://www.googleapis.com/upload/drive/v3/files/' + id + '?uploadType=media', {method:'PATCH', headers:{'Content-Type':'application/json'}, body:text});
+  }
+};
+
+var _syncing = false, _syncTimer = null;
+function scheduleSync(){
+  if (!device.driveFileId || !Drive.tokenValid()) return;
+  clearTimeout(_syncTimer); _syncTimer = setTimeout(function(){ runSync(false); }, 2500);
+}
+function runSync(interactive){
+  if (_syncing) return Promise.resolve();
+  if (!Drive.clientId()) { if (interactive) { openView('settings'); toast('Set up Google Drive sync first'); } return Promise.resolve(); }
+  if (!Drive.tokenValid()) { if (interactive) Drive.signIn(false); return Promise.resolve(); }
+  _syncing = true;
+  var fileId;
+  return Drive.findFile().then(function(id){
+    fileId = id;
+    return id ? Drive.download(id).then(function(t){ try { return normalizeState(JSON.parse(t)); } catch(e){ return blankState(); } }) : null;
+  }).then(function(remote){
+    var local = state;
+    if (remote && remote.household && local.household && remote.household.id !== local.household.id) {
+      var localHasData = live('tx').length > 0;
+      if (localHasData && !confirmBox('Google Drive has a different household ("' + remote.household.name + '"). Replace the data on this device with it?\n\nTip: export a backup first if unsure.')) {
+        throw new Error('Sync stopped: different household on Drive.');
+      }
+      local = blankState();
+    }
+    var merged = remote ? mergeStates(local, remote) : local;
+    if (!merged.household) {
+      if (device.joining) { device.joinError = 'No household found in this Google Drive. Make sure your partner has connected Drive first, and that you signed in with the same Google account.'; saveDevice(); }
+      return null;
+    }
+    state = merged; saveState(true);
+    var text = canonical(merged);
+    var needsUpload = !remote || canonical(remote) !== text;
+    var p = !fileId ? Drive.create(text).then(function(id){ device.driveFileId = id; })
+      : needsUpload ? Drive.update(fileId, text).then(function(){ device.driveFileId = fileId; }) : Promise.resolve(device.driveFileId = fileId);
+    return p.then(function(){ return 'ok'; });
+  }).then(function(res){
+    _syncing = false;
+    if (res === 'ok') {
+      device.dirty = false; device.lastSync = now(); device.syncError = '';
+      var wasJoining = device.joining; device.joining = false; device.joinError = '';
+      saveDevice(); render(true);
+      if (wasJoining) { toast('Household downloaded ✓'); openSheet('switchMe'); }
+      else if (interactive) toast('Synced ✓');
+    } else render(true);
+  }).catch(function(e){
+    _syncing = false;
+    if (e.auth) { if (interactive) Drive.signIn(false); else { device.syncError = 'Sign in again to sync.'; saveDevice(); render(true); } return; }
+    device.syncError = e.message || String(e); saveDevice(); render(true);
+    if (interactive) toast('Sync problem: ' + device.syncError);
+  });
+}
+ACTIONS.syncNow = function(){
+  if (!Drive.clientId()) { openView('settings'); toast('Set up Google Drive sync below'); return; }
+  if (!device.driveFileId && !Drive.tokenValid()) { openView('settings'); return; }
+  runSync(true);
+};
+ACTIONS.driveConnect = function(){ if (Drive.tokenValid()) runSync(true); else Drive.signIn(false); };
+ACTIONS.driveDisconnect = function(){
+  if (!confirmBox('Stop syncing on this device? Your data stays here and in Drive.')) return;
+  device.driveFileId = null; device.token = null; device.tokenExp = 0; device.lastSync = 0; saveDevice(); render(true);
+};
+
+/* ===== Nestegg — start-up ===== */
+var IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+SHEETS.recap = function(sh){
+  var r = null; rewardHistory().forEach(function(x){ if (x.start === sh.p) r = x; });
+  var s = periodSummary(sh.p), pts = pointsFor(sh.p);
+  return '<h2>🌅 ' + esc(periodName(sh.p)) + ' wrapped</h2><p class="muted">New month, fresh start. Here\'s how last month went:</p>' +
+    '<div class="kpis"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Spent</div><div class="v">' + fmtR(s.spent) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) + '</div></div></div>' +
+    '<div class="tier mt"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div><div class="strong">' + pts.tier.name + ' · ' + pts.total + ' points</div><div class="small muted">' +
+    (s.budgeted ? (s.spent <= s.budgeted ? '🎯 You stayed within budget!' : 'Over budget by ' + fmtR(s.spent - s.budgeted) + ' — this month is a clean slate.') : '') + '</div></div></div>' +
+    (r && r.reward > 0 ? '<div class="nudge gold" style="cursor:default"><div class="e">🎉</div><div><div class="t">' + fmtR(r.reward) + ' added to your Reward Pot</div><div class="small muted">' + r.pct + '% of your ' + fmtR(r.surplus) + ' surplus. Move the other ' + fmtR(r.surplus - r.reward) + ' to savings if you haven\'t yet.</div></div></div>'
+      : s.income > 0 ? '<div class="nudge" style="cursor:default"><div class="e">🌱</div><div><div class="t">No surplus this time</div><div class="small muted">Spending matched or passed income. One small change this month makes a difference.</div></div></div>'
+      : '<div class="nudge" style="cursor:default"><div class="e">💡</div><div><div class="t">Log your income this month</div><div class="small muted">The Reward Pot fills from income minus spending, so record payday.</div></div></div>') +
+    '<p class="small mt">Tiers reset today. Everyone starts at Bronze — first check-in earns points.</p><button class="btn primary block" data-act="closeSheet">Let\'s go 🚀</button>';
+};
+
+function checkRecap(){
+  if (!state.household) return;
+  var cur = currentPeriod();
+  if (device.lastRecap === cur) return;
+  var prev = prevPeriodStart(cur), had = periodSummary(prev).txs.length > 0;
+  device.lastRecap = cur; saveDevice();
+  if (had && !ui.sheet) { openSheet('recap', {p:prev}); confetti(); }
+}
+
+function init(){
+  loadAll();
+  if (device.autoSync == null) device.autoSync = !IS_IOS;
+  var r = Drive.handleRedirect();
+  render();
+  if (r === 'ok') {
+    runSync(false).then(function(){ if (device.driveFileId && !device.syncError) toast('☁️ Connected to Google Drive'); });
+  } else if (state.household && device.driveFileId) {
+    if (Drive.tokenValid()) runSync(false);
+    else if (device.autoSync && !IS_IOS && r !== 'silent-fail' && navigator.onLine !== false) {
+      var tried = null; try { tried = sessionStorage.getItem('nestegg-silent'); } catch(e){}
+      if (!tried) { try { sessionStorage.setItem('nestegg-silent', '1'); } catch(e){} Drive.signIn(true); return; }
+    }
+  }
+  checkRecap();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW', e); });
+  }
+  var lastDay = todayStr();
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState !== 'visible') return;
+    if (todayStr() !== lastDay) { lastDay = todayStr(); if (!ui.sheet) render(true); checkRecap(); }
+    if (state.household && device.driveFileId && Drive.tokenValid()) runSync(false);
+  });
+  window.addEventListener('online', function(){ if (device.dirty) scheduleSync(); });
+}
+init();
+
+})();
+</script>
+</body>
+</html>

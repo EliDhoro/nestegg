@@ -1,0 +1,29 @@
+{
+ "name": "Nestegg — our household budget",
+ "short_name": "Nestegg",
+ "start_url": "./",
+ "scope": "./",
+ "display": "standalone",
+ "background_color": "#f5f2ea",
+ "theme_color": "#1f6b4f",
+ "orientation": "portrait",
+ "description": "Budget together, build the habit, grow your nest egg.",
+ "icons": [
+  {
+   "src": "icons/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "icons/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  },
+  {
+   "src": "icons/icon-maskable-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}
