@@ -410,12 +410,29 @@ function liveCats(){
 }
 function spendCats(){ return liveCats().filter(function(c){ return c.group !== 'reward'; }); }
 
+/* ---------- income lines (salary, side hustle, rental…) ---------- */
+// h.incomeLines is the source of truth; h.incomes {memberId: total} is kept in sync for the calcs and older app versions.
+function incomeLines(){
+  var h = state.household; if (!h) return [];
+  if (h.incomeLines) return h.incomeLines;
+  return members().filter(function(m){ return (h.incomes || {})[m.id] > 0; })
+    .map(function(m){ return {id:'inc-' + m.id, memberId:m.id, name:'Salary', amount:h.incomes[m.id]}; });
+}
+function setIncomeLines(lines){
+  var h = JSON.parse(JSON.stringify(state.household));
+  h.incomeLines = lines; h.incomes = {};
+  h.members.forEach(function(m){ h.incomes[m.id] = sum(lines.filter(function(l){ return l.memberId === m.id; }), function(l){ return l.amount; }); });
+  setHousehold(h);
+}
+
 function createHousehold(opts){
   var h = {
     id: 'h-' + uid(), name: opts.householdName || 'Our household',
     members: [{id:'m1', name:opts.name1 || 'Me'}, {id:'m2', name:opts.name2 || 'Partner'}],
     periodStartDay: opts.payday || 26,
     incomes: {m1: +opts.income1 || 0, m2: +opts.income2 || 0},
+    incomeLines: [{id:'inc-m1', memberId:'m1', name:'Salary', amount:+opts.income1 || 0}, {id:'inc-m2', memberId:'m2', name:'Salary', amount:+opts.income2 || 0}]
+      .filter(function(l){ return l.amount > 0; }),
     savingsTarget: 0,
     rewardPct: {Bronze:10, Silver:20, Gold:25, Diamond:30},
     createdOn: todayStr()
@@ -935,14 +952,17 @@ function viewBudget(){
   html += periodNav(p) + '<div class="grid two mt">';
   var lta = s.leftToAssign;
   html += '<div class="card"><h2>The plan</h2>' +
-    '<div class="li"><div class="main"><div class="t">Income</div><div class="s">Expected ' + fmtR(s.expectedIncome) + ' · received ' + fmtR(s.income) + '</div></div><button class="btn sm" data-act="view" data-id="household">Edit</button></div>' +
+    '<div class="li"><div class="main"><div class="t">Income</div><div class="s">Expected ' + fmtR(s.expectedIncome) + ' · received ' + fmtR(s.income) + '</div></div><button class="btn sm" data-act="editIncome" data-id="">+ Add</button></div>' +
+    incomeLines().map(function(l){ var m = member(l.memberId);
+      return '<div class="li tap" data-act="editIncome" data-id="' + esc(l.id) + '"><div class="ico">💰</div><div class="main"><div class="t">' + esc(l.name) + '</div><div class="s">' + esc(m ? m.name : '') + '</div></div><span class="amt">' + fmtR(l.amount) + '</span></div>'; }).join('') +
     '<div class="li tap" data-act="editSavingsTarget"><div class="main"><div class="t">🚀 Pay yourselves first</div><div class="s">Savings target · saved ' + fmtR(s.saved) + '</div></div><span class="amt">' + fmtR(s.savingsTarget) + '</span></div>' +
     '<div class="li"><div class="main"><div class="t">Budgeted for spending</div><div class="s">Spent so far ' + fmtR(s.spent) + '</div></div><span class="amt">' + fmtR(s.budgeted) + '</span></div>' +
     '<div class="nudge ' + (lta === 0 ? 'green' : 'gold') + '" style="cursor:default"><div class="e">' + (lta === 0 ? '✅' : lta > 0 ? '🧩' : '⚖️') + '</div><div><div class="t">' +
     (s.incomeBase === 0 ? 'Add your expected income' : lta === 0 ? 'Every rand has a job' : lta > 0 ? fmtR(lta) + ' left to assign' : fmtR(-lta) + ' over-assigned') + '</div><div class="small muted">' +
-    (s.incomeBase === 0 ? 'Tap Edit next to Income.' : lta > 0 ? 'Add it to a category or your savings target.' : lta < 0 ? 'Your plan is bigger than your income — trim something.' : 'Your plan balances. Beautiful.') + '</div></div></div></div>';
+    (s.incomeBase === 0 ? 'Tap + Add next to Income.' : lta > 0 ? 'Add it to a category or your savings target.' : lta < 0 ? 'Your plan is bigger than your income — trim something.' : 'Your plan balances. Beautiful.') + '</div></div></div></div>';
   html += '<div class="card"><h2>Tools</h2><div class="list">' +
-    '<div class="li tap" data-act="suggestBudget"><div class="ico">✨</div><div class="main"><div class="t">Suggest from our history</div><div class="s">Uses your real spending from past months</div></div></div>' +
+    '<div class="li tap" data-act="suggestIncome"><div class="ico">✨</div><div class="main"><div class="t">Suggest from our income</div><div class="s">Splits your income by typical SA percentages</div></div></div>' +
+    '<div class="li tap" data-act="suggestBudget"><div class="ico">📈</div><div class="main"><div class="t">Suggest from our history</div><div class="s">Uses your real spending from past months</div></div></div>' +
     '<div class="li tap" data-act="view" data-id="import"><div class="ico">📄</div><div class="main"><div class="t">Import bank statements</div><div class="s">FNB, GoTyme or any CSV / PDF</div></div></div>' +
     '<div class="li tap" data-act="editCat" data-id=""><div class="ico">➕</div><div class="main"><div class="t">Add a category</div><div class="s">Name, emoji and monthly amount</div></div></div>' +
     '<div class="li tap" data-act="view" data-id="activity"><div class="ico">🧾</div><div class="main"><div class="t">All transactions</div><div class="s">Search, edit or delete</div></div></div></div></div>';
@@ -1009,19 +1029,61 @@ ACTIONS.suggestBudget = function(){
   });
   openSheet('suggest', {sug:sug, n:periods.length});
 };
+// Split expected income by the default SA percentages; custom categories keep their amount; the remainder goes to savings
+ACTIONS.suggestIncome = function(){
+  var total = sum(incomeLines(), function(l){ return l.amount; });
+  if (!total) { toast('Add your income first'); openSheet('income', {id:null}); return; }
+  var pct = {}, sug = {}, budgeted = 0;
+  DEFAULT_CATEGORIES.forEach(function(d){ pct[d[0]] = d[4]; });
+  spendCats().forEach(function(c){
+    sug[c.id] = c.id in pct ? Math.round(total * pct[c.id] / 100 / 50) * 50 : (c.budget || 0);
+    budgeted += sug[c.id];
+  });
+  openSheet('suggest', {sug:sug, pct:pct, income:total, savings:Math.max(0, total - budgeted)});
+};
 SHEETS.suggest = function(sh){
   var rows = spendCats().filter(function(c){ return sh.sug[c.id] > 0 || c.budget > 0; });
-  return '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>' +
+  return (sh.income
+      ? '<h2>✨ Budget from our income</h2><p class="small muted">Splits your ' + fmtR(sh.income) + ' a month using typical South African household percentages. Change any amount to fit your life.</p>'
+      : '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>') +
     '<div class="tbl-wrap"><table class="tbl"><tr><th>Category</th><th class="right">Now</th><th class="right">Suggested</th></tr>' +
-    rows.map(function(c){ return '<tr><td>' + c.emoji + ' ' + esc(c.name) + '</td><td class="right muted">' + fmtR(c.budget) + '</td><td class="right"><input class="input" style="min-height:34px;width:100px;text-align:right" data-sug="' + c.id + '" inputmode="decimal" value="' + sh.sug[c.id] + '"></td></tr>'; }).join('') +
+    rows.map(function(c){ return '<tr><td>' + c.emoji + ' ' + esc(c.name) + (sh.pct && sh.pct[c.id] ? ' <span class="small muted">' + sh.pct[c.id] + '%</span>' : '') + '</td><td class="right muted">' + fmtR(c.budget) + '</td><td class="right"><input class="input" style="min-height:34px;width:100px;text-align:right" data-sug="' + c.id + '" inputmode="decimal" value="' + sh.sug[c.id] + '"></td></tr>'; }).join('') +
     '</table></div><div class="row between mt small"><span class="muted">Total suggested</span><b>' + fmtR(sum(rows, function(c){ return sh.sug[c.id]; })) + '</b></div>' +
+    (sh.income ? '<label class="field mt"><span>🚀 Pay yourselves first — savings (R)</span><input class="input" data-sugsave inputmode="decimal" value="' + sh.savings + '"></label>' +
+      '<p class="small muted">Everything not budgeted above goes to savings, so every rand has a job.</p>' : '') +
     '<button class="btn primary block mt" data-act="applySuggest">Use these amounts</button>';
 };
 ACTIONS.applySuggest = function(){
   $all('[data-sug]').forEach(function(inp){
     var c = Object.assign({}, byId('categories', inp.getAttribute('data-sug'))); c.budget = Math.max(0, parseAmount(inp.value) || 0); upsert('categories', c);
   });
+  var sv = $('[data-sugsave]');
+  if (sv) { var h = Object.assign({}, state.household); h.savingsTarget = Math.max(0, parseAmount(sv.value) || 0); setHousehold(h); }
   saveState(); closeSheet(); render(true); toast('Budget updated ✓');
+};
+
+/* ---------- income lines ---------- */
+ACTIONS.editIncome = function(el){ openSheet('income', {id: el.getAttribute('data-id') || null}); };
+function findIncome(id){ var l = null; incomeLines().forEach(function(x){ if (x.id === id) l = x; }); return l; }
+SHEETS.income = function(sh){
+  var l = sh.id ? findIncome(sh.id) : null, who = l ? l.memberId : me().id;
+  return '<h2>' + (l ? '💰 ' + esc(l.name) : 'New income line') + '</h2><p class="small muted">What you expect each month, after tax. On payday, log what actually came in with + → Earned.</p>' +
+    '<label class="field"><span>What is it?</span><input class="input" id="f-in" value="' + esc(l ? l.name : '') + '" placeholder="e.g. Salary, Side hustle, Rental"></label>' +
+    '<label class="field"><span>Whose?</span><select class="input" id="f-iw">' + members().map(function(m){ return '<option value="' + m.id + '"' + (m.id === who ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></label>' +
+    '<label class="field"><span>Monthly amount (R)</span><input class="input" id="f-ia" inputmode="decimal" value="' + (l && l.amount ? l.amount : '') + '" placeholder="0"></label>' +
+    '<div class="btns"><button class="btn primary" data-act="saveIncome">Save</button>' + (l ? '<button class="btn danger" data-act="deleteIncome">Delete</button>' : '') + '</div>';
+};
+ACTIONS.saveIncome = function(){
+  var name = $('#f-in').value.trim(); if (!name) { toast('Give it a name'); return; }
+  var id = ui.sheet.id, lines = incomeLines().map(function(x){ return Object.assign({}, x); }), l = null;
+  lines.forEach(function(x){ if (x.id === id) l = x; });
+  if (!l) { l = {id:'inc-' + uid()}; lines.push(l); }
+  l.name = name; l.memberId = $('#f-iw').value; l.amount = Math.max(0, parseAmount($('#f-ia').value) || 0);
+  setIncomeLines(lines); saveState(); closeSheet(); render(true); toast('Saved');
+};
+ACTIONS.deleteIncome = function(){
+  var id = ui.sheet.id; if (!confirmBox('Delete this income line?')) return;
+  setIncomeLines(incomeLines().filter(function(x){ return x.id !== id; })); saveState(); closeSheet(); render(true);
 };
 
 /* ---------- ACTIVITY ---------- */
@@ -1382,8 +1444,8 @@ VIEWS.household = function(){
   var h = state.household, ms = h.members;
   var html = topbar('Household', 'Names, payday and income', {back:true, right:' '});
   html += '<div class="card"><label class="field"><span>Household name</span><input class="input" id="h-name" value="' + esc(h.name) + '"></label>' +
-    ms.map(function(m){ return '<div class="sep"></div><label class="field"><span>Name</span><input class="input" id="h-n-' + m.id + '" value="' + esc(m.name) + '"></label>' +
-      '<label class="field"><span>' + esc(m.name) + ' — expected monthly take-home (R)</span><input class="input" inputmode="decimal" id="h-i-' + m.id + '" value="' + ((h.incomes||{})[m.id] || '') + '"></label>'; }).join('') +
+    ms.map(function(m){ return '<div class="sep"></div><label class="field"><span>Name</span><input class="input" id="h-n-' + m.id + '" value="' + esc(m.name) + '"></label>'; }).join('') +
+    '<p class="small muted">Income lines (salaries, side hustles, rental…) are on the 📊 Budget tab.</p>' +
     '<div class="sep"></div><label class="field"><span>Budget month starts on day</span><input class="input" type="number" min="1" max="28" id="h-pd" value="' + h.periodStartDay + '"></label>' +
     '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '</p></div>' +
     '<div class="card mt"><h2>Reward Pot share by tier</h2><p class="small muted">The % of your month-end surplus you get to spend guilt-free. The rest is for savings.</p>' +
@@ -1394,7 +1456,7 @@ VIEWS.household = function(){
 ACTIONS.saveHousehold = function(){
   var h = JSON.parse(JSON.stringify(state.household));
   h.name = $('#h-name').value.trim() || h.name;
-  h.members.forEach(function(m){ m.name = $('#h-n-' + m.id).value.trim() || m.name; h.incomes = h.incomes || {}; h.incomes[m.id] = parseAmount($('#h-i-' + m.id).value) || 0; });
+  h.members.forEach(function(m){ m.name = $('#h-n-' + m.id).value.trim() || m.name; });
   h.periodStartDay = clamp(parseInt($('#h-pd').value, 10) || 1, 1, 28);
   TIERS.forEach(function(t){ h.rewardPct[t.name] = clamp(parseInt($('#h-rp-' + t.name).value, 10) || 0, 0, 100); });
   setHousehold(h); saveState(); toast('Saved ✓'); ui.view = null; render();
