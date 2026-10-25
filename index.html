@@ -329,8 +329,8 @@ var DEFAULT_CATEGORIES = [
   ['c-other','Other','📦','other',0],
   ['c-reward','Reward Pot treat','🎉','reward',0]
 ];
-var GROUP_LABEL = {needs:'Needs', giving:'Giving', debt:'Debt', wants:'Wants', other:'Other', reward:'Rewards'};
-var GROUP_ORDER = ['needs','giving','debt','wants','other','reward'];
+// Budget headings. Households can rename, reorder and add their own (household.groups); 'other' and 'reward' always exist.
+var DEFAULT_GROUPS = [{id:'needs', name:'Needs'}, {id:'giving', name:'Giving'}, {id:'debt', name:'Debt'}, {id:'wants', name:'Wants'}, {id:'other', name:'Other'}];
 
 function blankState(){
   return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[]};
@@ -402,9 +402,18 @@ function me(){ return member(device.memberId) || members()[0] || {id:'m1', name:
 function partner(){ var m = members(); for (var i=0;i<m.length;i++) if (m[i].id !== me().id) return m[i]; return null; }
 function initial(name){ return (name || '?').trim().charAt(0).toUpperCase(); }
 function cat(id){ return byId('categories', id) || {id:'c-other', name:'Other', emoji:'📦', group:'other', budget:0}; }
+function groupsList(){
+  var gs = (state.household && state.household.groups) || DEFAULT_GROUPS;
+  return gs.concat([{id:'reward', name:'Rewards'}]);
+}
+function catGroup(c){
+  if (c.group === 'reward') return 'reward';
+  return groupsList().some(function(g){ return g.id === c.group; }) ? c.group : 'other';
+}
 function liveCats(){
+  var order = groupsList().map(function(g){ return g.id; });
   return live('categories').sort(function(a,b){
-    var g = GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group);
+    var g = order.indexOf(catGroup(a)) - order.indexOf(catGroup(b));
     return g !== 0 ? g : (a.order||0) - (b.order||0);
   });
 }
@@ -454,26 +463,78 @@ function clearCache(){ _cache = {}; }
 function memo(key, fn){ if (!(key in _cache)) _cache[key] = fn(); return _cache[key]; }
 
 function payDay(){ return state.household ? (state.household.periodStartDay || 1) : 1; }
-function periodStartFor(dateStr){
+// The usual start from the payday setting, ignoring any month whose dates were moved
+function defaultPeriodStartFor(dateStr){
   var day = payDay(), d = s2d(dateStr), y = d.getFullYear(), m = d.getMonth();
   var startThis = Math.min(day, daysInMonth(y, m));
   if (d.getDate() >= startThis) return d2s(new Date(y, m, startThis));
   m--; if (m < 0) { m = 11; y--; }
   return d2s(new Date(y, m, Math.min(day, daysInMonth(y, m))));
 }
-function nextPeriodStart(start){
-  var d = s2d(start), y = d.getFullYear(), m = d.getMonth() + 1;
-  if (m > 11) { m = 0; y++; }
-  return d2s(new Date(y, m, Math.min(payDay(), daysInMonth(y, m))));
+
+/* Budget months are keyed 'YYYY-MM' (the month most of the days fall in). Any month's start can be moved
+   with household.periodStarts {key: 'YYYY-MM-DD'}; a month always ends the day before the next one starts. */
+function monthKey(dateStr){ return dateStr.slice(0, 7); }
+function shiftKey(key, n){
+  var m = +key.slice(5, 7) - 1 + n, y = +key.slice(0, 4) + Math.floor(m / 12);
+  m = ((m % 12) + 12) % 12;
+  return y + '-' + pad(m + 1);
 }
+function keysBetween(a, b){ return (+b.slice(0, 4) - +a.slice(0, 4)) * 12 + (+b.slice(5, 7) - +a.slice(5, 7)); }
+function defaultKeyStart(key){ return defaultPeriodStartFor(key + '-15'); }
+function keyStart(key){ var o = state.household && state.household.periodStarts; return (o && o[key]) || defaultKeyStart(key); }
+function periodKeyFor(dateStr){
+  return memo('pk:' + dateStr, function(){
+    var k = monthKey(dateStr);
+    for (var i = 0; i < 6; i++) {
+      if (keyStart(k) > dateStr) k = shiftKey(k, -1);
+      else if (keyStart(shiftKey(k, 1)) <= dateStr) k = shiftKey(k, 1);
+      else break;
+    }
+    return k;
+  });
+}
+function periodStartFor(dateStr){ return keyStart(periodKeyFor(dateStr)); }
+function nextPeriodStart(start){ return keyStart(shiftKey(periodKeyFor(start), 1)); }
 function periodEndFor(start){ return addDays(nextPeriodStart(start), -1); }
-function prevPeriodStart(start){ return periodStartFor(addDays(start, -1)); }
+function prevPeriodStart(start){ return keyStart(shiftKey(periodKeyFor(start), -1)); }
 function currentPeriod(){ return periodStartFor(todayStr()); }
-function periodName(start){
-  var end = s2d(periodEndFor(start));
-  return MONTHS[end.getMonth()] + ' ' + end.getFullYear();
-}
+function keyName(key){ return MONTHS[+key.slice(5, 7) - 1] + ' ' + key.slice(0, 4); }
+function periodName(start){ return keyName(periodKeyFor(start)); }
 function periodRange(start){ return fmtDate(start) + ' – ' + fmtDate(periodEndFor(start)); }
+
+/* ---------- per-month category amounts ---------- */
+// c.months {'YYYY-MM': {amount:n} | {pct:p}}: a month without its own entry uses the latest earlier one,
+// so each month starts as a copy of the last. '0000-00' holds the amount from before per-month amounts existed.
+function catPlan(c, key){
+  var m = c.months, best = null;
+  if (!m) return {amount: c.budget || 0, pct: c.pct || 0};
+  Object.keys(m).forEach(function(k){ if (k <= key && (best === null || k > best)) best = k; });
+  return best === null ? {amount: 0} : m[best];
+}
+function samePlan(a, b){ return (+a.pct || 0) === (+b.pct || 0) && ((+a.pct || 0) > 0 || (+a.amount || 0) === (+b.amount || 0)); }
+function incomeFor(start){
+  return memo('inc:' + start, function(){
+    var h = state.household || {incomes:{}};
+    var got = sum(txBetween(start, periodEndFor(start)).filter(function(x){ return x.type === 'income'; }), function(x){ return x.amount; });
+    var expected = sum(Object.keys(h.incomes || {}), function(k){ return h.incomes[k]; });
+    return {received: round2(got), expected: expected, base: Math.max(got, expected)};
+  });
+}
+function catBudget(c, start){
+  var p = catPlan(c, periodKeyFor(start));
+  return p.pct ? Math.round(incomeFor(start).base * p.pct / 100) : (+p.amount || 0);
+}
+// Returns a copy of c with `plan` from month `key` onwards. Months already lived keep what they had.
+function withCatPlan(c, key, plan){
+  var n = Object.assign({}, c), m = Object.assign({}, c.months || {'0000-00': {amount: c.budget || 0, pct: c.pct || 0}});
+  var next = shiftKey(key, 1), cur = periodKeyFor(todayStr());
+  if (next <= cur && !m[next]) m[next] = catPlan(c, next);
+  m[key] = plan; n.months = m;
+  // older app versions only read budget/pct: keep them on this month's plan
+  var now = catPlan(n, cur); n.pct = +now.pct || 0; n.budget = catBudget(n, currentPeriod());
+  return n;
+}
 
 function txBetween(a, b){
   return live('tx').filter(function(t){ return t.date >= a && t.date <= b; });
@@ -496,17 +557,18 @@ function periodSummary(start){
       else if (x.type === 'saving') saved += a;
       else if (x.type === 'skip') skipped += a;
     });
-    var expectedIncome = sum(Object.keys(h.incomes || {}), function(k){ return h.incomes[k]; });
-    var budgeted = sum(spendCats(), function(c){ return c.budget; });
+    var inc = incomeFor(start), expectedIncome = inc.expected, incomeBase = inc.base;
+    var budgets = {};
+    spendCats().forEach(function(c){ budgets[c.id] = catBudget(c, start); });
+    var budgeted = sum(Object.keys(budgets), function(k){ return budgets[k]; });
     var days = daysBetween(start, end) + 1;
     var dayIndex = t < start ? 0 : t > end ? days : daysBetween(start, t) + 1;
-    var incomeBase = Math.max(income, expectedIncome);
     return {
       start:start, end:end, days:days, dayIndex:dayIndex, daysLeft: Math.max(0, days - dayIndex + 1),
       isCurrent: t >= start && t <= end, isPast: t > end,
       txs:txs, byCat:byCat, spent:round2(spent), income:round2(income), saved:round2(saved), skipped:round2(skipped),
       rewardSpent:round2(rewardSpent), expectedIncome:expectedIncome, incomeBase:incomeBase,
-      budgeted:budgeted, savingsTarget: h.savingsTarget || 0,
+      budgets:budgets, budgeted:budgeted, savingsTarget: h.savingsTarget || 0,
       leftToSpend: round2(budgeted - spent),
       leftToAssign: round2(incomeBase - budgeted - (h.savingsTarget || 0)),
       surplus: round2(income - spent)
@@ -656,6 +718,18 @@ function projectedReward(){
 /* ---------- totals for wealth ---------- */
 function totalSkipped(){ return sum(live('tx').filter(function(x){ return x.type === 'skip'; }), function(x){ return x.amount; }); }
 function goalSaved(goalId){ return sum(live('tx').filter(function(x){ return x.type === 'saving' && x.goalId === goalId; }), function(x){ return x.amount; }); }
+// For a goal with a target date: what this month needs, worked out from where the goal stood when the month began
+function goalPace(g){
+  if (!g.targetDate || g.reachedOn) return null;
+  var p = currentPeriod(), end = periodEndFor(p), saves = live('tx').filter(function(x){ return x.type === 'saving' && x.goalId === g.id; });
+  var before = sum(saves.filter(function(x){ return x.date < p; }), function(x){ return x.amount; });
+  var thisMonth = sum(saves.filter(function(x){ return x.date >= p && x.date <= end; }), function(x){ return x.amount; });
+  var months = keysBetween(periodKeyFor(p), periodKeyFor(g.targetDate)) + 1, left = Math.max(0, g.target - before);
+  if (months < 1) return {late:true, left:Math.max(0, g.target - before - thisMonth)};
+  var need = Math.ceil(left / months / 10) * 10;
+  return {months:months, need:need, thisMonth:thisMonth, done: thisMonth >= need};
+}
+function goalsMonthlyNeed(){ return sum(live('goals').map(goalPace).filter(function(x){ return x && !x.late; }), function(x){ return x.need; }); }
 function latestNetWorth(){
   var a = live('netWorth').sort(function(x,y){ return x.date < y.date ? -1 : 1; });
   return a;
@@ -684,8 +758,11 @@ function onNextRender(f){ _afterHooks.push(f); }
 function renderSheet(){
   var root = $('#sheet-root');
   if (!ui.sheet) { root.innerHTML = ''; document.body.style.overflow = ''; return; }
-  var fn = SHEETS[ui.sheet.type];
-  root.innerHTML = '<div class="overlay" data-act="sheetBg"><div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div>' + (fn ? fn(ui.sheet) : '') + '</div></div>';
+  var fn = SHEETS[ui.sheet.type], body = '<div class="grab"></div>' + (fn ? fn(ui.sheet) : '');
+  var open = root.querySelector('.sheet');
+  // redrawing the sheet that's already open: swap its content in place instead of replaying the slide-up
+  if (open && open.getAttribute('data-type') === ui.sheet.type) { var y = open.scrollTop; open.innerHTML = body; open.scrollTop = y; }
+  else root.innerHTML = '<div class="overlay" data-act="sheetBg"><div class="sheet" data-type="' + ui.sheet.type + '" role="dialog" aria-modal="true">' + body + '</div></div>';
   document.body.style.overflow = 'hidden';
 }
 var SHEETS = {};
@@ -893,13 +970,13 @@ function viewHome(){
     return '<div class="nudge ' + n.cls + '" data-act="' + n.act + '" data-id="' + n.id + '"><div class="e">' + n.e + '</div><div><div class="t">' + esc(n.t) + '</div><div class="small muted">' + esc(n.s) + '</div></div></div>';
   }).join('') : '<div class="empty"><span class="e">🌿</span>All caught up. Keep the streak alive tomorrow.</div>') + '</div>';
   // categories
-  var cats = spendCats().map(function(c){ return {c:c, spent:s.byCat[c.id] || 0}; }).filter(function(x){ return x.spent > 0 || x.c.budget > 0; })
-    .sort(function(a,b){ return (b.spent / (b.c.budget||1)) - (a.spent / (a.c.budget||1)); }).slice(0, 5);
+  var cats = spendCats().map(function(c){ return {c:c, spent:s.byCat[c.id] || 0, b:s.budgets[c.id] || 0}; }).filter(function(x){ return x.spent > 0 || x.b > 0; })
+    .sort(function(a,b){ return (b.spent / (b.b||1)) - (a.spent / (a.b||1)); }).slice(0, 5);
   html += '<div class="card"><div class="row between"><h2>Watch these</h2><button class="btn ghost sm" data-act="tab" data-id="budget">Budget →</button></div>' +
     (cats.length ? cats.map(function(x){
-      var left = x.c.budget - x.spent;
+      var left = x.b - x.spent;
       return '<div style="margin:10px 0"><div class="row between small"><span class="strong">' + x.c.emoji + ' ' + esc(x.c.name) + '</span><span class="' + (left < 0 ? 'neg' : 'muted') + '">' +
-        (x.c.budget ? (left >= 0 ? fmtR(left) + ' left' : fmtR(-left) + ' over') : fmtR(x.spent) + ' · no budget') + '</span></div>' + bar(x.spent, x.c.budget) + '</div>';
+        (x.b ? (left >= 0 ? fmtR(left) + ' left' : fmtR(-left) + ' over') : fmtR(x.spent) + ' · no budget') + '</span></div>' + bar(x.spent, x.b) + '</div>';
     }).join('') : '<div class="empty"><span class="e">📊</span>No spending yet this month.</div>') + '</div>';
   // recent
   var recent = sortTx(live('tx')).slice(0, 6);
@@ -935,21 +1012,57 @@ SHEETS.switchMe = function(){
 ACTIONS.setMe = function(el){ device.memberId = el.getAttribute('data-id'); saveDevice(); closeSheet(); render(); toast('Hi ' + me().name + ' 👋'); };
 
 /* ---------- BUDGET ---------- */
-function periodNav(p){
-  var cur = currentPeriod();
-  return '<div class="row between card" style="padding:8px"><button class="btn sm" data-act="periodShift" data-id="-1">‹</button><div class="center"><div class="strong">' + esc(periodName(p)) +
-    (p === cur ? ' <span class="pill green">Now</span>' : '') + '</div><div class="tiny muted">' + esc(periodRange(p)) + '</div></div><button class="btn sm" data-act="periodShift" data-id="1"' + (p >= cur ? ' disabled' : '') + '>›</button></div>';
+// planAhead: the Budget tab can open next month so you can plan it before payday
+function periodNav(p, planAhead){
+  var cur = currentPeriod(), last = planAhead ? nextPeriodStart(cur) : cur;
+  return '<div class="row between card" style="padding:8px"><button class="btn sm" data-act="periodShift" data-id="-1">‹</button><div class="center tap" data-act="editMonthDates" style="cursor:pointer"><div class="strong">' + esc(periodName(p)) +
+    (p === cur ? ' <span class="pill green">Now</span>' : p > cur ? ' <span class="pill">Next</span>' : '') + '</div><div class="tiny muted">' + esc(periodRange(p)) + ' ✎</div></div>' +
+    '<button class="btn sm" data-act="periodShift" data-id="1" data-max="' + last + '"' + (p >= last ? ' disabled' : '') + '>›</button></div>';
 }
 ACTIONS.periodShift = function(el){
-  var p = ui.period || currentPeriod(), n = +el.getAttribute('data-id');
+  var p = ui.period || currentPeriod(), n = +el.getAttribute('data-id'), max = el.getAttribute('data-max') || currentPeriod();
   ui.period = n < 0 ? prevPeriodStart(p) : nextPeriodStart(p);
-  if (ui.period > currentPeriod()) ui.period = currentPeriod();
+  if (ui.period > max) ui.period = max;
   render(true);
+};
+
+/* ---------- month dates ---------- */
+ACTIONS.editMonthDates = function(){ openSheet('monthDates', {key: periodKeyFor(ui.period || currentPeriod())}); };
+SHEETS.monthDates = function(sh){
+  var k = sh.key, prev = shiftKey(k, -1), next = shiftKey(k, 1), o = state.household.periodStarts || {};
+  return '<h2>📅 ' + esc(keyName(k)) + ' dates</h2><p class="small muted">Match the month to when the money actually lands — for example when payday falls early. ' +
+    esc(keyName(prev)) + ' and ' + esc(keyName(next)) + ' move to fit, and nothing else changes.</p>' +
+    '<label class="field"><span>Starts on</span><input class="input" type="date" id="f-ms" value="' + keyStart(k) + '"></label>' +
+    '<label class="field"><span>Ends on</span><input class="input" type="date" id="f-me" value="' + addDays(keyStart(next), -1) + '"></label>' +
+    '<div class="btns"><button class="btn primary" data-act="saveMonthDates">Save</button>' +
+    (o[k] || o[next] ? '<button class="btn" data-act="resetMonthDates">Use the usual dates</button>' : '') + '</div>' +
+    '<p class="small muted">The usual start day is the ' + payDay() + 'th — change it under ⚙️ Settings → Household.</p>';
+};
+function setMonthStart(h, key, date){
+  h.periodStarts = Object.assign({}, h.periodStarts || {});
+  if (!date || date === defaultKeyStart(key)) delete h.periodStarts[key]; else h.periodStarts[key] = date;
+}
+ACTIONS.saveMonthDates = function(){
+  var k = ui.sheet.key, s = $('#f-ms').value, e = $('#f-me').value;
+  if (!s || !e) { toast('Pick both dates'); return; }
+  // every month keeps at least two weeks, so the months either side still make sense
+  var earliest = addDays(keyStart(shiftKey(k, -1)), 14), latestEnd = addDays(keyStart(shiftKey(k, 2)), -15);
+  if (daysBetween(s, e) < 13) { toast('A month needs at least two weeks'); return; }
+  if (s < earliest) { toast('Start on ' + fmtDate(earliest) + ' or later'); return; }
+  if (e > latestEnd) { toast('End on ' + fmtDate(latestEnd) + ' or earlier'); return; }
+  var h = JSON.parse(JSON.stringify(state.household));
+  setMonthStart(h, k, s); setMonthStart(h, shiftKey(k, 1), addDays(e, 1));
+  setHousehold(h); saveState(); closeSheet(); ui.period = s; render(true); toast(keyName(k) + ': ' + fmtDate(s) + ' – ' + fmtDate(e));
+};
+ACTIONS.resetMonthDates = function(){
+  var k = ui.sheet.key, h = JSON.parse(JSON.stringify(state.household));
+  setMonthStart(h, k, null); setMonthStart(h, shiftKey(k, 1), null);
+  setHousehold(h); saveState(); closeSheet(); ui.period = keyStart(k); render(true); toast('Back to the usual dates');
 };
 function viewBudget(){
   var p = ui.period || currentPeriod(), s = periodSummary(p), h = state.household;
   var html = topbar('Budget', 'Every rand gets a job');
-  html += periodNav(p) + '<div class="grid two mt">';
+  html += periodNav(p, true) + '<div class="grid two mt">';
   var lta = s.leftToAssign;
   html += '<div class="card"><h2>The plan</h2>' +
     '<div class="li"><div class="main"><div class="t">Income</div><div class="s">Expected ' + fmtR(s.expectedIncome) + ' · received ' + fmtR(s.income) + '</div></div><button class="btn sm" data-act="editIncome" data-id="">+ Add</button></div>' +
@@ -964,18 +1077,23 @@ function viewBudget(){
     '<div class="li tap" data-act="suggestIncome"><div class="ico">✨</div><div class="main"><div class="t">Suggest from our income</div><div class="s">Splits your income by typical SA percentages</div></div></div>' +
     '<div class="li tap" data-act="suggestBudget"><div class="ico">📈</div><div class="main"><div class="t">Suggest from our history</div><div class="s">Uses your real spending from past months</div></div></div>' +
     '<div class="li tap" data-act="view" data-id="import"><div class="ico">📄</div><div class="main"><div class="t">Import bank statements</div><div class="s">FNB, GoTyme or any CSV / PDF</div></div></div>' +
-    '<div class="li tap" data-act="editCat" data-id=""><div class="ico">➕</div><div class="main"><div class="t">Add a category</div><div class="s">Name, emoji and monthly amount</div></div></div>' +
+    '<div class="li tap" data-act="editCat" data-id=""><div class="ico">➕</div><div class="main"><div class="t">Add a category</div><div class="s">Name, group and amount for ' + esc(periodName(p)) + '</div></div></div>' +
+    '<div class="li tap" data-act="editGroups"><div class="ico">🗂️</div><div class="main"><div class="t">Groups</div><div class="s">Your own headings, like Faith or School fees</div></div></div>' +
+    '<div class="li tap" data-act="editMonthDates"><div class="ico">📅</div><div class="main"><div class="t">' + esc(periodName(p)) + ' dates</div><div class="s">' + esc(periodRange(p)) + ' · move them to match payday</div></div></div>' +
     '<div class="li tap" data-act="view" data-id="activity"><div class="ico">🧾</div><div class="main"><div class="t">All transactions</div><div class="s">Search, edit or delete</div></div></div></div></div>';
-  var groups = {};
-  liveCats().forEach(function(c){ (groups[c.group] = groups[c.group] || []).push(c); });
-  GROUP_ORDER.forEach(function(g){
-    if (!groups[g] || g === 'reward') return;
-    var gs = sum(groups[g], function(c){ return s.byCat[c.id]; }), gb = sum(groups[g], function(c){ return c.budget; });
-    html += '<div class="card"><div class="row between"><h2>' + GROUP_LABEL[g] + '</h2><span class="small muted">' + fmtR(gs) + ' / ' + fmtR(gb) + '</span></div>' +
-      groups[g].map(function(c){
-        var sp = s.byCat[c.id] || 0, left = (c.budget||0) - sp;
-        return '<div class="tap" data-act="editCat" data-id="' + c.id + '" style="padding:9px 0;cursor:pointer"><div class="row between"><span class="strong">' + c.emoji + ' ' + esc(c.name) + '</span><span class="small ' + (left < 0 ? 'neg' : 'muted') + '">' +
-          fmtR(sp) + ' / ' + (c.budget ? fmtR(c.budget) : '<i>no budget</i>') + '</span></div><div style="margin-top:6px">' + bar(sp, c.budget) + '</div></div>';
+  var byGroup = {};
+  liveCats().forEach(function(c){ var g = catGroup(c); (byGroup[g] = byGroup[g] || []).push(c); });
+  groupsList().forEach(function(g){
+    var cs = byGroup[g.id];
+    if (!cs || g.id === 'reward') return;
+    var gs = sum(cs, function(c){ return s.byCat[c.id]; }), gb = sum(cs, function(c){ return s.budgets[c.id]; });
+    html += '<div class="card"><div class="row between"><h2>' + esc(g.name) + '</h2><span class="small ' + (gb - gs < 0 ? 'neg' : 'muted') + '">' + fmtR(gs) + ' / ' + fmtR(gb) +
+      (gb ? ' · ' + (gb - gs >= 0 ? fmtR(gb - gs) + ' left' : fmtR(gs - gb) + ' over') : '') + '</span></div>' +
+      cs.map(function(c){
+        var sp = s.byCat[c.id] || 0, b = s.budgets[c.id] || 0, left = b - sp, pl = catPlan(c, periodKeyFor(p));
+        return '<div class="tap" data-act="editCat" data-id="' + c.id + '" style="padding:9px 0;cursor:pointer"><div class="row between"><span class="strong">' + c.emoji + ' ' + esc(c.name) +
+          (pl.pct ? ' <span class="pill">' + pl.pct + '%</span>' : '') + '</span><span class="small ' + (left < 0 ? 'neg' : 'muted') + '">' +
+          fmtR(sp) + ' / ' + (b ? fmtR(b) : '<i>no budget</i>') + '</span></div><div style="margin-top:6px">' + bar(sp, b) + '</div></div>';
       }).join('') + '</div>';
   });
   html += '</div>';
@@ -986,6 +1104,7 @@ SHEETS.savingsTarget = function(){
   var h = state.household;
   return '<h2>🚀 Pay yourselves first</h2><p class="small muted">The amount you move to savings as soon as you\'re paid — before any spending. Saving it in the first 5 days of the month earns bonus points.</p>' +
     '<label class="field"><span>Monthly savings target (R)</span><input class="input" id="f-st" inputmode="decimal" value="' + (h.savingsTarget || '') + '" placeholder="e.g. 2000"></label>' +
+    (goalsMonthlyNeed() ? '<p class="small muted">🎯 Your goals with dates need <b>' + fmtR(goalsMonthlyNeed()) + '</b> a month.</p>' : '') +
     '<button class="btn primary block" data-act="saveSavingsTarget">Save</button>';
 };
 ACTIONS.saveSavingsTarget = function(){
@@ -995,23 +1114,89 @@ ACTIONS.saveSavingsTarget = function(){
 ACTIONS.editCat = function(el){ openSheet('cat', {id: el.getAttribute('data-id') || null}); };
 SHEETS.cat = function(sh){
   var c = sh.id ? byId('categories', sh.id) : null;
-  var p = ui.period || currentPeriod(), s = periodSummary(p);
+  var p = ui.period || currentPeriod(), s = periodSummary(p), k = periodKeyFor(p);
+  var pl = c ? catPlan(c, k) : {amount:0}, isPct = (+pl.pct || 0) > 0;
   var txs = c ? sortTx(s.txs.filter(function(t){ return t.type === 'expense' && t.categoryId === c.id; })) : [];
-  var groups = ['needs','giving','debt','wants','other'];
+  var cg = c ? catGroup(c) : 'wants';
   return '<h2>' + (c ? c.emoji + ' ' + esc(c.name) : 'New category') + '</h2>' +
     '<div class="row"><label class="field" style="width:90px"><span>Emoji</span><input class="input center" id="f-ce" maxlength="4" value="' + esc(c ? c.emoji : '🏷️') + '"></label>' +
     '<label class="field" style="flex:1"><span>Name</span><input class="input" id="f-cn" value="' + esc(c ? c.name : '') + '" placeholder="e.g. Petrol"></label></div>' +
-    '<label class="field"><span>Monthly budget (R)</span><input class="input" id="f-cb" inputmode="decimal" value="' + (c && c.budget ? c.budget : '') + '" placeholder="0"></label>' +
-    (c && c.group === 'reward' ? '' : '<label class="field"><span>Type</span><select class="input" id="f-cg">' + groups.map(function(g){ return '<option value="' + g + '"' + ((c ? c.group : 'wants') === g ? ' selected' : '') + '>' + GROUP_LABEL[g] + '</option>'; }).join('') + '</select></label>') +
+    '<div class="row"><label class="field" style="flex:1"><span>Amount for ' + esc(periodName(p)) + '</span><input class="input" id="f-cb" inputmode="decimal" value="' + (isPct ? pl.pct : (+pl.amount || '')) + '" placeholder="0"></label>' +
+    '<label class="field" style="width:130px"><span>As</span><select class="input" id="f-cm" data-change="catMode"><option value="amount"' + (isPct ? '' : ' selected') + '>Rand</option><option value="pct"' + (isPct ? ' selected' : '') + '>% of income</option></select></label></div>' +
+    '<p class="small muted" id="f-cm-note">' + catModeNote(isPct, p) + '</p>' +
+    (c && c.group === 'reward' ? '' : '<label class="field"><span>Group</span><select class="input" id="f-cg" data-change="catGroupPick">' +
+      groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return '<option value="' + g.id + '"' + (cg === g.id ? ' selected' : '') + '>' + esc(g.name) + '</option>'; }).join('') +
+      '<option value="__new">➕ New group…</option></select></label>' +
+      '<label class="field" id="f-cgn-wrap" style="display:none"><span>New group name</span><input class="input" id="f-cgn" placeholder="e.g. Black tax"></label>') +
     '<div class="btns"><button class="btn primary" data-act="saveCat">Save</button>' + (c && c.id !== 'c-other' && c.id !== 'c-reward' ? '<button class="btn danger" data-act="deleteCat">Delete</button>' : '') + '</div>' +
-    (c ? '<div class="sep"></div><h3>This month · ' + fmtR(s.byCat[c.id] || 0) + '</h3>' + (txs.length ? '<div class="list">' + txs.map(txRow).join('') + '</div>' : '<p class="small muted">Nothing spent here yet.</p>') : '');
+    (c ? '<div class="sep"></div><h3>' + esc(periodName(p)) + ' · ' + fmtR(s.byCat[c.id] || 0) + '</h3>' + (txs.length ? '<div class="list">' + txs.map(txRow).join('') + '</div>' : '<p class="small muted">Nothing spent here yet.</p>') : '');
 };
+function catModeNote(isPct, p){
+  var inc = incomeFor(p).base;
+  return isPct ? 'Follows this month\'s income (' + fmtR(inc) + '), so it adjusts by itself — like tithe at 10%.'
+    : 'Applies from ' + esc(periodName(p)) + ' onwards, until you change it. Earlier months keep their own amounts.';
+}
+CHANGES.catMode = function(el){ $('#f-cm-note').innerHTML = catModeNote(el.value === 'pct', ui.period || currentPeriod()); };
+CHANGES.catGroupPick = function(el){ var w = $('#f-cgn-wrap'); w.style.display = el.value === '__new' ? '' : 'none'; if (el.value === '__new') $('#f-cgn').focus(); };
 ACTIONS.saveCat = function(){
-  var sh = ui.sheet, c = sh.id ? Object.assign({}, byId('categories', sh.id)) : {id:'c-' + uid(), order: 100 + live('categories').length};
+  var sh = ui.sheet, old = sh.id ? byId('categories', sh.id) : null;
+  var c = old ? Object.assign({}, old) : {id:'c-' + uid(), order: 100 + live('categories').length, budget:0};
   var name = $('#f-cn').value.trim(); if (!name) { toast('Give it a name'); return; }
-  c.name = name; c.emoji = $('#f-ce').value.trim() || '🏷️'; c.budget = Math.max(0, parseAmount($('#f-cb').value) || 0);
-  if ($('#f-cg')) c.group = $('#f-cg').value; else c.group = c.group || 'reward';
+  var isPct = $('#f-cm').value === 'pct', v = Math.max(0, parseAmount($('#f-cb').value) || 0);
+  if (isPct && v > 100) { toast('A percentage can\'t be more than 100'); return; }
+  c.name = name; c.emoji = $('#f-ce').value.trim() || '🏷️';
+  if ($('#f-cg')) {
+    if ($('#f-cg').value === '__new') {
+      var gn = $('#f-cgn').value.trim(); if (!gn) { toast('Name the new group'); return; }
+      var h = JSON.parse(JSON.stringify(state.household)), ng = {id:'grp-' + uid(), name:gn};
+      h.groups = (h.groups || DEFAULT_GROUPS).concat([ng]); setHousehold(h); c.group = ng.id;
+    } else c.group = $('#f-cg').value;
+  } else c.group = c.group || 'reward';
+  var k = periodKeyFor(ui.period || currentPeriod()), plan = isPct ? {pct:v} : {amount:v};
+  if (!old || !samePlan(catPlan(old, k), plan)) c = withCatPlan(c, k, plan);
   upsert('categories', c); saveState(); closeSheet(); render(true); toast('Saved');
+};
+
+/* ---------- groups ---------- */
+ACTIONS.editGroups = function(){
+  openSheet('groups', {draft: groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return {id:g.id, name:g.name}; })});
+};
+SHEETS.groups = function(sh){
+  var n = sh.draft.length;
+  return '<h2>🗂️ Groups</h2><p class="small muted">The headings your budget is organised under — rename them, put them in your order, or add your own like Faith, Black tax or School fees.</p>' +
+    sh.draft.map(function(g, i){
+      return '<div class="row" style="gap:6px;margin-bottom:8px"><input class="input" style="flex:1" data-input="grpName" data-i="' + i + '" value="' + esc(g.name) + '" placeholder="Group name">' +
+        '<button class="btn sm" data-act="grpMove" data-i="' + i + '" data-d="-1"' + (i === 0 ? ' disabled' : '') + ' aria-label="Move up">↑</button>' +
+        '<button class="btn sm" data-act="grpMove" data-i="' + i + '" data-d="1"' + (i === n - 1 ? ' disabled' : '') + ' aria-label="Move down">↓</button>' +
+        (g.id === 'other' ? '<button class="btn sm" style="visibility:hidden" aria-hidden="true" tabindex="-1">✕</button>' : '<button class="btn sm danger" data-act="grpDel" data-i="' + i + '" aria-label="Delete">✕</button>') + '</div>';
+    }).join('') +
+    '<button class="btn block" data-act="grpAdd">+ Add a group</button><button class="btn primary block mt" data-act="saveGroups">Save</button>';
+};
+INPUTS.grpName = function(el){ ui.sheet.draft[+el.getAttribute('data-i')].name = el.value; };
+ACTIONS.grpMove = function(el){
+  var d = ui.sheet.draft, i = +el.getAttribute('data-i'), j = i + (+el.getAttribute('data-d'));
+  if (j < 0 || j >= d.length) return;
+  var t = d[i]; d[i] = d[j]; d[j] = t; renderSheet();
+};
+ACTIONS.grpDel = function(el){
+  var d = ui.sheet.draft, g = d[+el.getAttribute('data-i')];
+  var n = liveCats().filter(function(c){ return catGroup(c) === g.id; }).length;
+  if (n && !confirmBox('Delete "' + g.name + '"? Its ' + n + ' categor' + (n === 1 ? 'y moves' : 'ies move') + ' to Other.')) return;
+  d.splice(+el.getAttribute('data-i'), 1); renderSheet();
+};
+ACTIONS.grpAdd = function(){
+  ui.sheet.draft.push({id:'grp-' + uid(), name:''}); renderSheet();
+  var ins = $all('[data-input=grpName]'); if (ins.length) ins[ins.length - 1].focus();
+};
+ACTIONS.saveGroups = function(){
+  var d = ui.sheet.draft.map(function(g){ return {id:g.id, name:g.name.trim()}; });
+  if (d.some(function(g){ return !g.name; })) { toast('Give every group a name'); return; }
+  var h = JSON.parse(JSON.stringify(state.household)); h.groups = d; setHousehold(h);
+  // categories whose group was deleted go to Other
+  live('categories').forEach(function(c){
+    if (c.group !== 'reward' && !d.some(function(g){ return g.id === c.group; })) { var n = Object.assign({}, c); n.group = 'other'; upsert('categories', n); }
+  });
+  saveState(); closeSheet(); render(true); toast('Groups saved');
 };
 ACTIONS.deleteCat = function(){
   var id = ui.sheet.id; if (!confirmBox('Delete this category? Past transactions will move to "Other".')) return;
@@ -1033,29 +1218,32 @@ ACTIONS.suggestBudget = function(){
 ACTIONS.suggestIncome = function(){
   var total = sum(incomeLines(), function(l){ return l.amount; });
   if (!total) { toast('Add your income first'); openSheet('income', {id:null}); return; }
-  var pct = {}, sug = {}, budgeted = 0;
+  var p = ui.period || currentPeriod(), now = periodSummary(p).budgets, pct = {}, sug = {}, budgeted = 0;
   DEFAULT_CATEGORIES.forEach(function(d){ pct[d[0]] = d[4]; });
   spendCats().forEach(function(c){
-    sug[c.id] = c.id in pct ? Math.round(total * pct[c.id] / 100 / 50) * 50 : (c.budget || 0);
+    sug[c.id] = c.id in pct ? Math.round(total * pct[c.id] / 100 / 50) * 50 : (now[c.id] || 0);
     budgeted += sug[c.id];
   });
   openSheet('suggest', {sug:sug, pct:pct, income:total, savings:Math.max(0, total - budgeted)});
 };
 SHEETS.suggest = function(sh){
-  var rows = spendCats().filter(function(c){ return sh.sug[c.id] > 0 || c.budget > 0; });
+  var p = ui.period || currentPeriod(), now = periodSummary(p).budgets;
+  var rows = spendCats().filter(function(c){ return sh.sug[c.id] > 0 || now[c.id] > 0; });
   return (sh.income
-      ? '<h2>✨ Budget from our income</h2><p class="small muted">Splits your ' + fmtR(sh.income) + ' a month using typical South African household percentages. Change any amount to fit your life.</p>'
-      : '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>') +
+      ? '<h2>✨ Budget from our income</h2><p class="small muted">Splits your ' + fmtR(sh.income) + ' a month using typical South African household percentages. Change any amount to fit your life. Applies to ' + esc(periodName(p)) + ' onwards.</p>'
+      : '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Applies to ' + esc(periodName(p)) + ' onwards. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>') +
     '<div class="tbl-wrap"><table class="tbl"><tr><th>Category</th><th class="right">Now</th><th class="right">Suggested</th></tr>' +
-    rows.map(function(c){ return '<tr><td>' + c.emoji + ' ' + esc(c.name) + (sh.pct && sh.pct[c.id] ? ' <span class="small muted">' + sh.pct[c.id] + '%</span>' : '') + '</td><td class="right muted">' + fmtR(c.budget) + '</td><td class="right"><input class="input" style="min-height:34px;width:100px;text-align:right" data-sug="' + c.id + '" inputmode="decimal" value="' + sh.sug[c.id] + '"></td></tr>'; }).join('') +
+    rows.map(function(c){ return '<tr><td>' + c.emoji + ' ' + esc(c.name) + (sh.pct && sh.pct[c.id] ? ' <span class="small muted">' + sh.pct[c.id] + '%</span>' : '') + '</td><td class="right muted">' + fmtR(now[c.id] || 0) + '</td><td class="right"><input class="input" style="min-height:34px;width:100px;text-align:right" data-sug="' + c.id + '" inputmode="decimal" value="' + sh.sug[c.id] + '"></td></tr>'; }).join('') +
     '</table></div><div class="row between mt small"><span class="muted">Total suggested</span><b>' + fmtR(sum(rows, function(c){ return sh.sug[c.id]; })) + '</b></div>' +
     (sh.income ? '<label class="field mt"><span>🚀 Pay yourselves first — savings (R)</span><input class="input" data-sugsave inputmode="decimal" value="' + sh.savings + '"></label>' +
       '<p class="small muted">Everything not budgeted above goes to savings, so every rand has a job.</p>' : '') +
     '<button class="btn primary block mt" data-act="applySuggest">Use these amounts</button>';
 };
 ACTIONS.applySuggest = function(){
+  var p = ui.period || currentPeriod(), k = periodKeyFor(p), now = periodSummary(p).budgets;
   $all('[data-sug]').forEach(function(inp){
-    var c = Object.assign({}, byId('categories', inp.getAttribute('data-sug'))); c.budget = Math.max(0, parseAmount(inp.value) || 0); upsert('categories', c);
+    var c = byId('categories', inp.getAttribute('data-sug')), v = Math.max(0, parseAmount(inp.value) || 0);
+    if (v !== (now[c.id] || 0)) upsert('categories', withCatPlan(c, k, {amount:v})); // untouched lines (and % lines) stay as they are
   });
   var sv = $('[data-sugsave]');
   if (sv) { var h = Object.assign({}, state.household); h.savingsTarget = Math.max(0, parseAmount(sv.value) || 0); setHousehold(h); }
@@ -1134,10 +1322,15 @@ function viewWealth(){
   html += '<div class="card"><div class="row between"><h2>Goals</h2><button class="btn ghost sm" data-act="editGoal" data-id="">+ New goal</button></div>';
   if (!goals.length) html += '<div class="empty"><span class="e">🎯</span>Name what you\'re saving for — an emergency fund, a house deposit, school fees. Named goals get funded.<br><button class="btn primary mt" data-act="editGoal" data-id="">Create your first goal</button></div>';
   goals.forEach(function(g){
-    var saved = goalSaved(g.id), pct = g.target ? Math.min(100, Math.round(saved / g.target * 100)) : 0;
+    var saved = goalSaved(g.id), pct = g.target ? Math.min(100, Math.round(saved / g.target * 100)) : 0, pace = goalPace(g);
     html += '<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row"><span class="goal-emoji">' + esc(g.emoji) + '</span><div style="flex:1;min-width:0"><div class="strong">' + esc(g.name) + '</div><div class="small muted">' +
       fmtR(saved) + ' of ' + fmtR(g.target) + ' · ' + pct + '%' + (g.reachedOn ? ' · 🏆 reached' : '') + '</div></div><button class="btn sm" data-act="addToGoal" data-id="' + g.id + '">+ Add</button><button class="btn sm ghost" data-act="editGoal" data-id="' + g.id + '">✎</button></div>' +
-      '<div style="margin-top:8px">' + bar(saved, g.target, pct >= 100 ? '' : '') + '</div></div>';
+      '<div style="margin-top:8px">' + bar(saved, g.target, pct >= 100 ? '' : '') + '</div>' +
+      (!pace ? '' : pace.late
+        ? '<div class="small muted" style="margin-top:6px">📅 The target date has passed — ' + fmtR(pace.left) + ' still to go. Set a new date to get a monthly amount.</div>'
+        : '<div class="small" style="margin-top:6px">' + (pace.done ? '✅ ' : '📅 ') + 'Put away <b>' + fmtR(pace.need) + '</b> a month to reach it by ' + esc(fmtDate(g.targetDate, true)) +
+          ' · this month ' + fmtR(pace.thisMonth) + (pace.done ? ' — done!' : ' so far') + '</div>') +
+      '</div>';
   });
   html += '</div>';
   // net worth
@@ -1169,19 +1362,23 @@ function lineChart(pts){
 ACTIONS.editGoal = function(el){ openSheet('goal', {id: el.getAttribute('data-id') || null}); };
 SHEETS.goal = function(sh){
   var g = sh.id ? byId('goals', sh.id) : null;
-  var ideas = [['🛟','Emergency fund'],['🏡','House deposit'],['🚗','Car'],['🎓','School fees'],['✈️','Holiday'],['💍','Anniversary']];
+  var ideas = [['🛟','Emergency fund'],['🏡','House deposit'],['🚗','Car'],['🎓','School fees'],['🩺','Medical'],['🪪','Licence'],['✈️','Holiday'],['💍','Anniversary']];
   return '<h2>' + (g ? 'Edit goal' : 'New goal') + '</h2>' +
     (g ? '' : '<div class="chips">' + ideas.map(function(i){ return '<button class="chip" data-act="goalIdea" data-e="' + i[0] + '" data-n="' + i[1] + '">' + i[0] + ' ' + i[1] + '</button>'; }).join('') + '</div>') +
     '<div class="row mt"><label class="field" style="width:90px"><span>Emoji</span><input class="input center" id="f-ge" maxlength="4" value="' + esc(g ? g.emoji : '🎯') + '"></label>' +
     '<label class="field" style="flex:1"><span>Name</span><input class="input" id="f-gn" value="' + esc(g ? g.name : '') + '" placeholder="e.g. Emergency fund"></label></div>' +
     '<label class="field"><span>Target amount (R)</span><input class="input" id="f-gt" inputmode="decimal" value="' + (g ? g.target : '') + '"></label>' +
+    '<label class="field"><span>Reach it by (optional)</span><input class="input" type="date" id="f-gd" value="' + (g && g.targetDate ? g.targetDate : '') + '"></label>' +
+    '<p class="small muted">With a date, Nestegg works out how much to put away each month.</p>' +
     '<div class="btns"><button class="btn primary" data-act="saveGoal">Save goal</button>' + (g ? '<button class="btn danger" data-act="deleteGoal">Delete</button>' : '') + '</div>';
 };
 ACTIONS.goalIdea = function(el){ $('#f-ge').value = el.getAttribute('data-e'); $('#f-gn').value = el.getAttribute('data-n'); $('#f-gt').focus(); };
 ACTIONS.saveGoal = function(){
   var sh = ui.sheet, g = sh.id ? Object.assign({}, byId('goals', sh.id)) : {id:'g-' + uid(), createdOn:todayStr()};
   g.name = $('#f-gn').value.trim(); g.emoji = $('#f-ge').value.trim() || '🎯'; g.target = parseAmount($('#f-gt').value) || 0;
+  g.targetDate = $('#f-gd').value || null;
   if (!g.name || !g.target) { toast('Add a name and target'); return; }
+  if (g.targetDate && g.targetDate < todayStr()) { toast('Pick a date in the future'); return; }
   if (g.reachedOn && goalSaved(g.id) < g.target) g.reachedOn = null;
   upsert('goals', g); saveState(); closeSheet(); render(true); toast('Goal saved 🎯');
 };
@@ -1361,8 +1558,8 @@ ACTIONS.addSave = function(){
   celebrate(before);
   if (reached) { confetti(); setTimeout(function(){ toast('🏆 Goal reached: ' + reached.name + '!', 'gold'); }, 700); }
   if (!orig && t.type === 'expense' && t.categoryId !== 'c-reward' && t.date >= currentPeriod()) {
-    var c = cat(t.categoryId), s = periodSummary(currentPeriod()), sp = s.byCat[c.id] || 0;
-    if (c.budget > 0) setTimeout(function(){ toast(c.emoji + ' ' + c.name + ': ' + (c.budget - sp >= 0 ? fmtR(c.budget - sp) + ' left' : fmtR(sp - c.budget) + ' over budget')); }, 400);
+    var c = cat(t.categoryId), s = periodSummary(currentPeriod()), sp = s.byCat[c.id] || 0, b = s.budgets[c.id] || 0;
+    if (b > 0) setTimeout(function(){ toast(c.emoji + ' ' + c.name + ': ' + (b - sp >= 0 ? fmtR(b - sp) + ' left' : fmtR(sp - b) + ' over budget')); }, 400);
   }
   if (!orig && t.type === 'skip') setTimeout(function(){ toast('💪 ' + fmtR(t.amount) + ' stayed in your pocket'); }, 400);
 };
@@ -1446,8 +1643,8 @@ VIEWS.household = function(){
   html += '<div class="card"><label class="field"><span>Household name</span><input class="input" id="h-name" value="' + esc(h.name) + '"></label>' +
     ms.map(function(m){ return '<div class="sep"></div><label class="field"><span>Name</span><input class="input" id="h-n-' + m.id + '" value="' + esc(m.name) + '"></label>'; }).join('') +
     '<p class="small muted">Income lines (salaries, side hustles, rental…) are on the 📊 Budget tab.</p>' +
-    '<div class="sep"></div><label class="field"><span>Budget month starts on day</span><input class="input" type="number" min="1" max="28" id="h-pd" value="' + h.periodStartDay + '"></label>' +
-    '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '</p></div>' +
+    '<div class="sep"></div><label class="field"><span>Usual start day for each budget month</span><input class="input" type="number" min="1" max="28" id="h-pd" value="' + h.periodStartDay + '"></label>' +
+    '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '. To move a single month (say payday comes early), tap its dates on the 📊 Budget tab.</p></div>' +
     '<div class="card mt"><h2>Reward Pot share by tier</h2><p class="small muted">The % of your month-end surplus you get to spend guilt-free. The rest is for savings.</p>' +
     TIERS.map(function(t){ return '<label class="field"><span>' + t.emoji + ' ' + t.name + ' (%)</span><input class="input" type="number" min="0" max="100" id="h-rp-' + t.name + '" value="' + rewardPct(t.name) + '"></label>'; }).join('') + '</div>' +
     '<button class="btn primary block mt" data-act="saveHousehold">Save</button>';
