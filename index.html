@@ -563,14 +563,15 @@ function periodSummary(start){
     var budgeted = sum(Object.keys(budgets), function(k){ return budgets[k]; });
     var days = daysBetween(start, end) + 1;
     var dayIndex = t < start ? 0 : t > end ? days : daysBetween(start, t) + 1;
+    var carry = carryIn(start);
     return {
-      start:start, end:end, days:days, dayIndex:dayIndex, daysLeft: Math.max(0, days - dayIndex + 1),
+      start:start, end:end, days:days, dayIndex:dayIndex, daysLeft: Math.max(0, days - dayIndex + 1), carry:carry,
       isCurrent: t >= start && t <= end, isPast: t > end,
       txs:txs, byCat:byCat, spent:round2(spent), income:round2(income), saved:round2(saved), skipped:round2(skipped),
       rewardSpent:round2(rewardSpent), expectedIncome:expectedIncome, incomeBase:incomeBase,
       budgets:budgets, budgeted:budgeted, savingsTarget: h.savingsTarget || 0,
       leftToSpend: round2(budgeted - spent),
-      leftToAssign: round2(incomeBase - budgeted - (h.savingsTarget || 0)),
+      leftToAssign: round2(incomeBase + carry - budgeted - (h.savingsTarget || 0)),
       surplus: round2(income - spent)
     };
   });
@@ -684,23 +685,47 @@ function pointsFor(start){
 
 /* ---------- Reward Pot ---------- */
 function rewardPct(tierName){ var p = state.household && state.household.rewardPct || {}; return +p[tierName] || 0; }
+function startedPeriod(){ return periodStartFor(state.household && state.household.createdOn || todayStr()); }
+// A finished month's Reward Pot share. Only months from when you started using Nestegg count — imported history doesn't earn a pot.
+function rewardFor(start){
+  if (start < startedPeriod() || start >= currentPeriod()) return 0;
+  var s = periodSummary(start), pct = rewardPct(pointsFor(start).tier.name);
+  return s.income > 0 && s.surplus > 0 ? Math.round(s.surplus * pct / 100) : 0;
+}
 function rewardHistory(){
   return memo('rh', function(){
     var cur = currentPeriod(), first = null;
     live('tx').forEach(function(x){ if (!first || x.date < first) first = x.date; });
     if (!first) return [];
-    // Rewards only accrue from the month you started using Nestegg — imported history doesn't earn a pot.
-    var startedOn = periodStartFor(state.household && state.household.createdOn || first);
-    if (first < startedOn) first = startedOn;
+    if (first < startedPeriod()) first = startedPeriod();
     var out = [], p = periodStartFor(first), guard = 0;
     while (p < cur && guard < 240) {
-      var s = periodSummary(p), pts = pointsFor(p), pct = rewardPct(pts.tier.name);
-      var reward = s.income > 0 && s.surplus > 0 ? Math.round(s.surplus * pct / 100) : 0;
-      out.push({start:p, income:s.income, spent:s.spent, saved:s.saved, surplus:s.surplus, points:pts.total, tier:pts.tier, pct:pct, reward:reward});
+      var s = periodSummary(p), pts = pointsFor(p);
+      out.push({start:p, income:s.income, spent:s.spent, saved:s.saved, surplus:s.surplus, points:pts.total, tier:pts.tier, pct:rewardPct(pts.tier.name), reward:rewardFor(p)});
       p = nextPeriodStart(p); guard++;
     }
     return out.reverse();
   });
+}
+
+/* ---------- money brought forward (the old sheet's "Balance B/D") ---------- */
+// What a month leaves — its income (or expected income) plus what it brought in, less spending, savings and its
+// Reward Pot share — comes into the next month's plan. Starts from the month you began; a month's figure can be
+// set by hand (household.carryAdjust {key: amount}) and the whole thing switched off (household.carryOver === false).
+function carryIn(start){
+  return memo('cin:' + start, function(){
+    var h = state.household; if (!h || h.carryOver === false) return 0;
+    var k = periodKeyFor(start), adj = h.carryAdjust && h.carryAdjust[k];
+    if (adj != null) return +adj;
+    if (start <= startedPeriod() || firstMonthPartial(prevPeriodStart(start))) return 0;
+    return monthLeftover(prevPeriodStart(start)).left;
+  });
+}
+// The month you began part-way through isn't fully logged, so its leftover isn't worked out (it can still be set by hand)
+function firstMonthPartial(start){ return start === startedPeriod() && (state.household.createdOn || '') > start; }
+function monthLeftover(start){
+  var s = periodSummary(start), pot = rewardFor(start);
+  return {carry:s.carry, income:s.incomeBase, spent:s.spent, saved:s.saved, pot:pot, left:round2(s.carry + s.incomeBase - s.spent - s.saved - pot)};
 }
 function potBalance(){
   return memo('pot', function(){
@@ -911,12 +936,17 @@ function txAmount(t){
   if (t.type === 'saving') return '<span class="amt" style="color:var(--blue)">' + fmtRc(a) + '</span>';
   if (t.type === 'skip') return '<span class="amt" style="color:var(--gold)">' + fmtRc(a) + '</span>';
   if (t.type === 'ignore') return '<span class="amt muted">' + fmtRc(a) + '</span>';
+  if (a < 0) return '<span class="amt pos">+' + fmtRc(-a) + '</span>'; // refund
   return '<span class="amt">−' + fmtRc(a) + '</span>';
 }
+function methodName(m){ var x = null; METHODS.forEach(function(k){ if (k[0] === m) x = k[1]; }); return x; }
 function txRow(t){
   var m = member(t.memberId), parts = [];
   if (t.type === 'expense' && t.note) parts.push(cat(t.categoryId).name);
+  if (t.type === 'expense' && t.amount < 0) parts.push('↩️ refund');
+  if (t.splitId) parts.push('✂️ split');
   if (t.type === 'skip') parts.push('not spent');
+  if (t.method) parts.push(methodName(t.method));
   if (m) parts.push(m.name);
   parts.push(fmtDay(t.date));
   if (t.source === 'import') parts.push('📄');
@@ -1068,6 +1098,8 @@ function viewBudget(){
     '<div class="li"><div class="main"><div class="t">Income</div><div class="s">Expected ' + fmtR(s.expectedIncome) + ' · received ' + fmtR(s.income) + '</div></div><button class="btn sm" data-act="editIncome" data-id="">+ Add</button></div>' +
     incomeLines().map(function(l){ var m = member(l.memberId);
       return '<div class="li tap" data-act="editIncome" data-id="' + esc(l.id) + '"><div class="ico">💰</div><div class="main"><div class="t">' + esc(l.name) + '</div><div class="s">' + esc(m ? m.name : '') + '</div></div><span class="amt">' + fmtR(l.amount) + '</span></div>'; }).join('') +
+    (h.carryOver !== false && p > startedPeriod() ? '<div class="li tap" data-act="editCarry"><div class="ico">↪️</div><div class="main"><div class="t">Brought forward</div><div class="s">Left over from ' + esc(periodName(prevPeriodStart(p))) +
+      ((h.carryAdjust || {})[periodKeyFor(p)] != null ? ' · set by you' : '') + ' · tap to adjust</div></div><span class="amt ' + (s.carry < 0 ? 'neg' : '') + '">' + fmtR(s.carry) + '</span></div>' : '') +
     '<div class="li tap" data-act="editSavingsTarget"><div class="main"><div class="t">🚀 Pay yourselves first</div><div class="s">Savings target · saved ' + fmtR(s.saved) + '</div></div><span class="amt">' + fmtR(s.savingsTarget) + '</span></div>' +
     '<div class="li"><div class="main"><div class="t">Budgeted for spending</div><div class="s">Spent so far ' + fmtR(s.spent) + '</div></div><span class="amt">' + fmtR(s.budgeted) + '</span></div>' +
     '<div class="nudge ' + (lta === 0 ? 'green' : 'gold') + '" style="cursor:default"><div class="e">' + (lta === 0 ? '✅' : lta > 0 ? '🧩' : '⚖️') + '</div><div><div class="t">' +
@@ -1099,6 +1131,31 @@ function viewBudget(){
   html += '</div>';
   return html;
 }
+ACTIONS.editCarry = function(){ openSheet('carry', {key: periodKeyFor(ui.period || currentPeriod())}); };
+SHEETS.carry = function(sh){
+  var start = keyStart(sh.key), prev = prevPeriodStart(start), lo = monthLeftover(prev), adj = (state.household.carryAdjust || {})[sh.key];
+  function row(label, v, sign){ return '<div class="row between small" style="padding:4px 0"><span class="muted">' + label + '</span><span>' + (sign || '') + fmtR(v) + '</span></div>'; }
+  var partial = firstMonthPartial(prev);
+  return '<h2>↪️ Brought forward into ' + esc(keyName(sh.key)) + '</h2><p class="small muted">What ' + esc(periodName(prev)) + ' left over comes into this month, so it gets a job too — like Balance B/D on your old sheet.</p>' +
+    (partial ? '<div class="nudge" style="cursor:default"><div class="e">🌱</div><div><div class="t">You started part-way through ' + esc(periodName(prev)) + '</div><div class="small muted">Its spending before ' + esc(fmtDate(state.household.createdOn)) +
+        ' isn\'t in Nestegg, so the leftover isn\'t worked out. Enter what was actually left — for example your bank balance — if you\'d like it in this month\'s plan. From next month it\'s automatic.</div></div></div>'
+      : '<div class="card" style="padding:10px 14px">' + (lo.carry ? row('Brought into ' + esc(periodName(prev)), lo.carry) : '') + row('Income', lo.income, '+') + row('Spent', lo.spent, '−') + row('Moved to savings', lo.saved, '−') +
+        (lo.pot ? row('Reward Pot share', lo.pot, '−') : '') + '<div class="sep"></div><div class="row between strong"><span>Worked out</span><span>' + fmtR(lo.left) + '</span></div></div>') +
+    '<label class="field mt"><span>' + (partial ? 'Amount left over (R)' : 'Use a different amount (R) — e.g. what the bank actually shows') + '</span><input class="input" id="f-carry" inputmode="decimal" value="' + (adj != null ? adj : '') + '" placeholder="' + (partial ? '0' : lo.left) + '"></label>' +
+    '<div class="btns"><button class="btn primary" data-act="saveCarry">Save</button>' + (adj != null ? '<button class="btn" data-act="clearCarry">Use worked-out amount</button>' : '') + '</div>' +
+    '<p class="small muted">Don\'t want this? Switch it off in ⚙️ Settings → Household.</p>';
+};
+function setCarryAdjust(key, v){
+  var h = JSON.parse(JSON.stringify(state.household)); h.carryAdjust = h.carryAdjust || {};
+  if (v == null) delete h.carryAdjust[key]; else h.carryAdjust[key] = v;
+  setHousehold(h); saveState(); closeSheet(); render(true);
+}
+ACTIONS.saveCarry = function(){
+  var raw = $('#f-carry').value.trim().replace(/^[−-]/, '-'), v = raw ? parseAmount(raw.replace('-', '')) * (raw.charAt(0) === '-' ? -1 : 1) : null;
+  if (raw && isNaN(v)) { toast('Enter an amount'); return; }
+  setCarryAdjust(ui.sheet.key, raw ? v : null); toast('Saved');
+};
+ACTIONS.clearCarry = function(){ setCarryAdjust(ui.sheet.key, null); toast('Using the worked-out amount'); };
 ACTIONS.editSavingsTarget = function(){ openSheet('savingsTarget'); };
 SHEETS.savingsTarget = function(){
   var h = state.household;
@@ -1280,6 +1337,7 @@ VIEWS.activity = function(){
   var txs = sortTx(s.txs).filter(function(t){
     if (f.type !== 'all' && t.type !== f.type) return false;
     if (f.who !== 'all' && t.memberId !== f.who) return false;
+    if (f.method && f.method !== 'all' && (t.method || 'none') !== f.method) return false;
     if (f.q) { var q = f.q.toLowerCase(); if ((txTitle(t) + ' ' + cat(t.categoryId).name + ' ' + (t.raw || '')).toLowerCase().indexOf(q) < 0) return false; }
     return true;
   });
@@ -1289,7 +1347,11 @@ VIEWS.activity = function(){
     '<div class="chips mt">' + [['all','All'],['expense','Spent'],['income','Earned'],['saving','Saved'],['skip','Skipped'],['ignore','Transfers']].map(function(x){
       return '<button class="chip ' + (f.type === x[0] ? 'on' : '') + '" data-act="actType" data-id="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>' +
     '<div class="chips mt">' + [['all','Everyone']].concat(members().map(function(m){ return [m.id, m.name]; })).map(function(x){
-      return '<button class="chip ' + (f.who === x[0] ? 'on' : '') + '" data-act="actWho" data-id="' + x[0] + '">' + esc(x[1]) + '</button>'; }).join('') + '</div></div>';
+      return '<button class="chip ' + (f.who === x[0] ? 'on' : '') + '" data-act="actWho" data-id="' + x[0] + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>' +
+    '<div class="chips mt">' + [['all','Any way']].concat(METHODS).concat([['none','Not set']]).map(function(x){
+      // spending this month by how it was paid, e.g. how much cash went out
+      var spentBy = x[0] === 'all' ? '' : ' ' + fmtR(sum(s.txs.filter(function(t){ return t.type === 'expense' && (t.method || 'none') === x[0]; }), function(t){ return t.amount; }));
+      return '<button class="chip ' + ((f.method || 'all') === x[0] ? 'on' : '') + '" data-act="actMethod" data-id="' + x[0] + '">' + esc(x[1]) + '<span class="muted">' + spentBy + '</span></button>'; }).join('') + '</div></div>';
   html += '<div class="card mt">';
   if (!txs.length) html += '<div class="empty"><span class="e">🔍</span>Nothing here.</div>';
   var lastDate = null;
@@ -1302,6 +1364,7 @@ VIEWS.activity = function(){
 };
 ACTIONS.actType = function(el){ ui.actFilter.type = el.getAttribute('data-id'); render(true); };
 ACTIONS.actWho = function(el){ ui.actFilter.who = el.getAttribute('data-id'); render(true); };
+ACTIONS.actMethod = function(el){ ui.actFilter.method = el.getAttribute('data-id'); render(true); };
 var _searchT;
 INPUTS.actSearch = function(el){
   ui.actFilter.q = el.value; clearTimeout(_searchT);
@@ -1470,19 +1533,30 @@ var TYPE_META = {
   skip:{label:'Skipped 💪', icon:'💪', note:'What did you NOT buy?', save:'I skipped it!'},
   ignore:{label:'Transfer', icon:'↔️', note:'Not counted in budget', save:'Save'}
 };
+var METHODS = [['cash','💵 Cash'],['card','💳 Card'],['eft','🏦 EFT']];
 function openAdd(opts){
   opts = opts || {};
   openSheet('add', {txType: opts.type || 'expense', amount: opts.amount ? String(opts.amount) : '', categoryId: opts.categoryId || null,
-    goalId: opts.goalId || null, note: opts.note || '', date: opts.date || todayStr(), memberId: opts.memberId || me().id, editId: opts.editId || null});
+    goalId: opts.goalId || null, note: opts.note || '', date: opts.date || todayStr(), memberId: opts.memberId || me().id, editId: opts.editId || null,
+    method: opts.editId ? (opts.method || null) : (device.lastMethod || null), refund: !!opts.refund,
+    split: opts.split || null, splitId: opts.splitId || null, editIds: opts.editIds || null});
 }
 ACTIONS.quickAdd = function(){ openAdd({type:'expense'}); };
 ACTIONS.addType = function(el){
   var t = el.getAttribute('data-id');
   if (t === 'income' || t === 'expense' || t === 'saving' || t === 'skip') openAdd({type:t});
 };
+// A split receipt is several expense records sharing a splitId (so every total keeps working); editing any line opens the whole receipt.
+function splitParts(t){
+  if (!t.splitId) return [t];
+  return live('tx').filter(function(x){ return x.splitId === t.splitId; }).sort(function(a, b){ return (b.importKey ? 1 : 0) - (a.importKey ? 1 : 0) || (a.createdAt || 0) - (b.createdAt || 0); });
+}
 ACTIONS.editTx = function(el){
   var t = byId('tx', el.getAttribute('data-id')); if (!t) return;
-  openAdd({type:t.type, amount:t.amount, categoryId:t.categoryId, goalId:t.goalId, note:t.note || '', date:t.date, memberId:t.memberId, editId:t.id});
+  var parts = splitParts(t), first = parts[0], refund = t.type === 'expense' && t.amount < 0;
+  openAdd({type:t.type, amount:round2(Math.abs(sum(parts, function(x){ return x.amount; }))), categoryId:first.categoryId, goalId:t.goalId, note:t.note || '', date:t.date,
+    memberId:t.memberId, editId:first.id, method:t.method, refund:refund, splitId:t.splitId || null, editIds:parts.map(function(x){ return x.id; }),
+    split: parts.length > 1 ? parts.map(function(x){ return {categoryId:x.categoryId, amount:String(Math.abs(x.amount))}; }) : null});
 };
 function amountHtml(a){ return '<span class="cur">R</span>' + (a ? esc(a.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')) : '<span style="color:var(--ink-3)">0</span>'); }
 SHEETS.add = function(sh){
@@ -1492,10 +1566,21 @@ SHEETS.add = function(sh){
   html += '<div class="amount-display" id="amt">' + amountHtml(sh.amount) + '</div>';
   if (sh.txType === 'skip') html += '<p class="small muted center" style="margin:0 0 6px">Wanted something, didn\'t buy it? Log it — it counts as a win.</p>';
   html += '<div class="keypad">' + ['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(function(k){ return '<button data-act="key" data-k="' + k + '">' + k + '</button>'; }).join('') + '</div>';
+  if (sh.txType === 'expense') html += '<div class="chips" style="justify-content:center;margin-bottom:10px">' +
+    '<button class="chip ' + (sh.refund ? 'on' : '') + '" data-act="addRefund">↩️ It\'s a refund</button><button class="chip ' + (sh.split ? 'on' : '') + '" data-act="addSplit">✂️ Split across lines</button></div>';
   if (sh.txType === 'expense' || sh.txType === 'skip') {
     var cats = liveCats().filter(function(c){ return sh.txType === 'expense' ? (c.group !== 'reward' || sh.categoryId === 'c-reward' || potBalance().balance > 0) : c.group !== 'reward'; });
-    html += '<div class="cats">' + cats.map(function(c){ return '<button class="cat ' + (sh.categoryId === c.id ? 'on' : '') + '" data-act="addCat" data-id="' + c.id + '"><span class="e">' + c.emoji + '</span>' + esc(c.name) + '</button>'; }).join('') + '</div>';
+    if (sh.txType === 'expense' && sh.split) {
+      html += '<div class="split">' + sh.split.map(function(r, i){
+        return '<div class="row" style="gap:6px;margin-bottom:6px"><select class="input" style="flex:1;min-width:0" data-change="splitCat" data-i="' + i + '"><option value="">Pick a line…</option>' +
+          cats.map(function(c){ return '<option value="' + c.id + '"' + (r.categoryId === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</select>' +
+          '<input class="input" style="width:100px;text-align:right" inputmode="decimal" data-input="splitAmt" data-i="' + i + '" value="' + esc(r.amount) + '" placeholder="the rest">' +
+          '<button class="btn sm" data-act="splitDel" data-i="' + i + '"' + (sh.split.length <= 2 ? ' disabled' : '') + ' aria-label="Remove line">✕</button></div>';
+      }).join('') + '<div class="row between small" style="margin-bottom:8px"><button class="btn sm" data-act="splitAdd">+ Add line</button><span id="split-left" class="muted">' + splitStatus(sh) + '</span></div></div>';
+    } else html += '<div class="cats">' + cats.map(function(c){ return '<button class="cat ' + (sh.categoryId === c.id ? 'on' : '') + '" data-act="addCat" data-id="' + c.id + '"><span class="e">' + c.emoji + '</span>' + esc(c.name) + '</button>'; }).join('') + '</div>';
   }
+  if (sh.txType === 'expense' || sh.txType === 'income') html += '<div class="row small" style="gap:8px;margin:4px 0 8px;flex-wrap:wrap"><span class="muted">' + (sh.txType === 'income' ? 'Came in as' : 'Paid with') + '</span>' +
+    METHODS.map(function(m){ return '<button class="chip ' + (sh.method === m[0] ? 'on' : '') + '" data-act="addMethod" data-id="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>';
   if (sh.txType === 'saving') {
     var goals = live('goals');
     html += '<div class="small strong muted">Towards a goal?</div><div class="chips mt"><button class="chip ' + (!sh.goalId ? 'on' : '') + '" data-act="addGoal" data-id="">General savings</button>' +
@@ -1511,6 +1596,35 @@ SHEETS.add = function(sh){
   return html;
 };
 ACTIONS.addSetType = function(el){ ui.sheet.txType = el.getAttribute('data-id'); renderSheet(); };
+ACTIONS.addRefund = function(){ ui.sheet.refund = !ui.sheet.refund; renderSheet(); };
+ACTIONS.addMethod = function(el){ var m = el.getAttribute('data-id'); ui.sheet.method = ui.sheet.method === m ? null : m; renderSheet(); };
+ACTIONS.addSplit = function(){
+  var sh = ui.sheet;
+  if (sh.split) { sh.categoryId = sh.split[0].categoryId || sh.categoryId; sh.split = null; }
+  else sh.split = [{categoryId:sh.categoryId || '', amount:''}, {categoryId:'', amount:''}];
+  renderSheet();
+};
+ACTIONS.splitAdd = function(){ ui.sheet.split.push({categoryId:'', amount:''}); renderSheet(); };
+ACTIONS.splitDel = function(el){ if (ui.sheet.split.length > 2) { ui.sheet.split.splice(+el.getAttribute('data-i'), 1); renderSheet(); } };
+CHANGES.splitCat = function(el){ ui.sheet.split[+el.getAttribute('data-i')].categoryId = el.value; };
+INPUTS.splitAmt = function(el){ ui.sheet.split[+el.getAttribute('data-i')].amount = el.value; var s = $('#split-left'); if (s) s.innerHTML = splitStatus(ui.sheet); };
+// Works out each line's amount: at most one line may be left empty and gets whatever remains of the total
+function splitResolve(sh){
+  var total = parseAmount(sh.amount) || 0, empty = [], filled = 0, bad = false;
+  sh.split.forEach(function(r, i){
+    if (!String(r.amount).trim()) empty.push(i);
+    else { var v = parseAmount(r.amount); if (!(v > 0)) bad = true; else filled += v; }
+  });
+  var rest = round2(total - filled);
+  return {total:total, empty:empty, filled:round2(filled), rest:rest, bad:bad};
+}
+function splitStatus(sh){
+  var r = splitResolve(sh);
+  if (!r.total) return 'Enter the total first';
+  if (r.empty.length === 1) return r.rest > 0 ? 'The empty line gets ' + fmtRc(r.rest) : '<span class="neg">Lines already use the whole total</span>';
+  if (r.rest === 0) return '✅ All split';
+  return r.rest > 0 ? fmtRc(r.rest) + ' still to split' : '<span class="neg">' + fmtRc(-r.rest) + ' more than the total</span>';
+}
 ACTIONS.addCat = function(el){ ui.sheet.categoryId = el.getAttribute('data-id'); $all('.cat').forEach(function(b){ b.classList.toggle('on', b === el); }); buzz(8); };
 ACTIONS.addGoal = function(el){ ui.sheet.goalId = el.getAttribute('data-id') || null; renderSheet(); };
 ACTIONS.addWho = function(el){ ui.sheet.memberId = el.getAttribute('data-id'); renderSheet(); };
@@ -1527,6 +1641,7 @@ function pressKey(k){
     a = (a === '0' ? '' : a) + k;
   }
   sh.amount = a; var el = $('#amt'); if (el) el.innerHTML = amountHtml(a); buzz(6);
+  var sl = $('#split-left'); if (sl && sh.split) sl.innerHTML = splitStatus(sh);
 }
 ACTIONS.key = function(el){ pressKey(el.getAttribute('data-k')); };
 document.addEventListener('keydown', function(ev){
@@ -1542,30 +1657,49 @@ document.addEventListener('keydown', function(ev){
 ACTIONS.addSave = function(){
   var sh = ui.sheet, amount = parseAmount(sh.amount);
   if (!(amount > 0)) { toast('Enter an amount'); return; }
-  if (sh.txType === 'expense' && !sh.categoryId) { toast('Pick a category'); return; }
+  var isExp = sh.txType === 'expense', sign = isExp && sh.refund ? -1 : 1, lines = null;
+  if (isExp && sh.split) {
+    var r = splitResolve(sh);
+    if (r.bad) { toast('Check the line amounts'); return; }
+    if (sh.split.some(function(x){ return !x.categoryId; })) { toast('Pick a line for every row'); return; }
+    if (r.empty.length > 1) { toast('Leave at most one amount empty'); return; }
+    if (r.empty.length === 1 && !(r.rest > 0)) { toast('Nothing is left for the empty line'); return; }
+    if (!r.empty.length && r.rest !== 0) { toast(r.rest > 0 ? fmtRc(r.rest) + ' still to split' : 'The lines add up to more than the total'); return; }
+    lines = sh.split.map(function(x){ return {categoryId:x.categoryId, amount: String(x.amount).trim() ? parseAmount(x.amount) : r.rest}; });
+  } else if (isExp && !sh.categoryId) { toast('Pick a category'); return; }
   var before = snapshot();
-  var orig = sh.editId ? byId('tx', sh.editId) : null;
-  var t = orig ? Object.assign({}, orig) : {id:'t-' + uid(), source:'manual', createdOn:todayStr(), createdAt:now()};
-  t.type = sh.txType; t.amount = amount; t.date = sh.date || todayStr(); t.memberId = sh.memberId || me().id;
-  t.note = (sh.note || '').trim();
-  t.categoryId = (sh.txType === 'expense' || sh.txType === 'skip') ? (sh.categoryId || 'c-other') : null;
-  t.goalId = sh.txType === 'saving' ? (sh.goalId || null) : null;
-  if (orig && orig.raw && orig.categoryId !== t.categoryId && t.type === 'expense') learnRule(orig.raw, t.categoryId);
-  upsert('tx', t);
+  var orig = sh.editId ? byId('tx', sh.editId) : null, oldIds = sh.editIds || (orig ? [orig.id] : []);
+  if (!lines) lines = [{categoryId:(isExp || sh.txType === 'skip') ? (sh.categoryId || 'c-other') : null, amount:amount}];
+  var splitId = lines.length > 1 ? (sh.splitId || 's-' + uid()) : null, t = null;
+  lines.forEach(function(l, i){
+    // reuse the receipt's existing records first, so an imported line keeps its bank reference
+    var base = oldIds[i] && byId('tx', oldIds[i]);
+    var x = base ? Object.assign({}, base) : {id:'t-' + uid(), source:'manual', createdOn:todayStr(), createdAt:now() + i};
+    x.type = sh.txType; x.amount = round2(sign * l.amount); x.date = sh.date || todayStr(); x.memberId = sh.memberId || me().id;
+    x.note = (sh.note || '').trim(); x.categoryId = l.categoryId; x.splitId = splitId;
+    x.goalId = sh.txType === 'saving' ? (sh.goalId || null) : null;
+    x.method = (isExp || sh.txType === 'income') ? (sh.method || null) : null;
+    if (i === 0 && lines.length === 1 && base && base.raw && base.categoryId !== x.categoryId && isExp) learnRule(base.raw, x.categoryId);
+    upsert('tx', x); if (i === 0) t = x;
+  });
+  oldIds.slice(lines.length).forEach(function(id){ removeItem('tx', id); });
+  if (sh.method) { device.lastMethod = sh.method; saveDevice(); }
   var reached = null;
   if (t.goalId) { var g = byId('goals', t.goalId); if (g && !g.reachedOn && goalSaved(g.id) >= g.target) { g = Object.assign({}, g); g.reachedOn = todayStr(); upsert('goals', g); reached = g; } }
   saveState(); closeSheet(); render(true);
   celebrate(before);
   if (reached) { confetti(); setTimeout(function(){ toast('🏆 Goal reached: ' + reached.name + '!', 'gold'); }, 700); }
-  if (!orig && t.type === 'expense' && t.categoryId !== 'c-reward' && t.date >= currentPeriod()) {
+  if (!orig && lines.length > 1) setTimeout(function(){ toast('✂️ Split across ' + lines.length + ' lines'); }, 400);
+  else if (!orig && t.type === 'expense' && t.amount > 0 && t.categoryId !== 'c-reward' && t.date >= currentPeriod()) {
     var c = cat(t.categoryId), s = periodSummary(currentPeriod()), sp = s.byCat[c.id] || 0, b = s.budgets[c.id] || 0;
     if (b > 0) setTimeout(function(){ toast(c.emoji + ' ' + c.name + ': ' + (b - sp >= 0 ? fmtR(b - sp) + ' left' : fmtR(sp - b) + ' over budget')); }, 400);
   }
   if (!orig && t.type === 'skip') setTimeout(function(){ toast('💪 ' + fmtR(t.amount) + ' stayed in your pocket'); }, 400);
 };
 ACTIONS.addDelete = function(){
-  if (!confirmBox('Delete this transaction?')) return;
-  removeItem('tx', ui.sheet.editId); saveState(); closeSheet(); render(true); toast('Deleted');
+  var ids = ui.sheet.editIds || [ui.sheet.editId];
+  if (!confirmBox(ids.length > 1 ? 'Delete this receipt and all ' + ids.length + ' of its lines?' : 'Delete this transaction?')) return;
+  ids.forEach(function(id){ removeItem('tx', id); }); saveState(); closeSheet(); render(true); toast('Deleted');
 };
 
 /* ===== Nestegg — onboarding, household, settings, reminders, backup ===== */
@@ -1644,7 +1778,9 @@ VIEWS.household = function(){
     ms.map(function(m){ return '<div class="sep"></div><label class="field"><span>Name</span><input class="input" id="h-n-' + m.id + '" value="' + esc(m.name) + '"></label>'; }).join('') +
     '<p class="small muted">Income lines (salaries, side hustles, rental…) are on the 📊 Budget tab.</p>' +
     '<div class="sep"></div><label class="field"><span>Usual start day for each budget month</span><input class="input" type="number" min="1" max="28" id="h-pd" value="' + h.periodStartDay + '"></label>' +
-    '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '. To move a single month (say payday comes early), tap its dates on the 📊 Budget tab.</p></div>' +
+    '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '. To move a single month (say payday comes early), tap its dates on the 📊 Budget tab.</p>' +
+    '<div class="sep"></div><label class="row" style="gap:12px"><span class="toggle"><input type="checkbox" id="h-carry"' + (h.carryOver !== false ? ' checked' : '') + '><span></span></span>' +
+    '<span class="small"><b>Bring each month\'s leftover forward</b><br><span class="muted">What\'s left at month end shows up in next month\'s plan, like Balance B/D.</span></span></label></div>' +
     '<div class="card mt"><h2>Reward Pot share by tier</h2><p class="small muted">The % of your month-end surplus you get to spend guilt-free. The rest is for savings.</p>' +
     TIERS.map(function(t){ return '<label class="field"><span>' + t.emoji + ' ' + t.name + ' (%)</span><input class="input" type="number" min="0" max="100" id="h-rp-' + t.name + '" value="' + rewardPct(t.name) + '"></label>'; }).join('') + '</div>' +
     '<button class="btn primary block mt" data-act="saveHousehold">Save</button>';
@@ -1655,6 +1791,7 @@ ACTIONS.saveHousehold = function(){
   h.name = $('#h-name').value.trim() || h.name;
   h.members.forEach(function(m){ m.name = $('#h-n-' + m.id).value.trim() || m.name; });
   h.periodStartDay = clamp(parseInt($('#h-pd').value, 10) || 1, 1, 28);
+  h.carryOver = $('#h-carry').checked;
   TIERS.forEach(function(t){ h.rewardPct[t.name] = clamp(parseInt($('#h-rp-' + t.name).value, 10) || 0, 0, 100); });
   setHousehold(h); saveState(); toast('Saved ✓'); ui.view = null; render();
 };
@@ -2074,8 +2211,8 @@ VIEWS['import'] = function(){
       var r = x.r;
       return '<tr class="' + (r.include ? '' : 'off') + (r.flag && r.include ? ' flag' : '') + '"><td><input type="checkbox" data-change="impInc" data-i="' + x.i + '"' + (r.include ? ' checked' : '') + '></td>' +
         '<td class="desc" title="' + esc(r.desc) + '"><div class="strong" style="overflow:hidden;text-overflow:ellipsis">' + esc(prettyMerchant(r.desc)) + '</div><div class="tiny muted">' + fmtDate(r.date) + ' · <span class="' + (r.amount > 0 ? 'pos' : '') + '">' + (r.amount > 0 ? '+' : '−') + fmtR(Math.abs(r.amount), true) + '</span>' + (r.dup ? ' · <span class="pill">already in</span>' : '') + '</div></td>' +
-        '<td><select data-change="impType" data-i="' + x.i + '">' + [['expense','Spent'],['income','Income'],['saving','Saved'],['ignore','Transfer']].map(function(t){ return '<option value="' + t[0] + '"' + (r.type === t[0] ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('') + '</select>' +
-        (r.type === 'expense' ? '<select data-change="impCat" data-i="' + x.i + '" style="margin-top:4px">' + catOpts.map(function(c){ return '<option value="' + c.id + '"' + (r.categoryId === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</select>' : '') + '</td></tr>';
+        '<td><select data-change="impType" data-i="' + x.i + '">' + [['expense','Spent'],['refund','Refund'],['income','Income'],['saving','Saved'],['ignore','Transfer']].map(function(t){ return '<option value="' + t[0] + '"' + (r.type === t[0] ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('') + '</select>' +
+        (r.type === 'expense' || r.type === 'refund' ? '<select data-change="impCat" data-i="' + x.i + '" style="margin-top:4px">' + catOpts.map(function(c){ return '<option value="' + c.id + '"' + (r.categoryId === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</select>' : '') + '</td></tr>';
     }).join('') + '</table></div>' + (shown.length > (imp.limit || 300) ? '<button class="btn block mt" data-act="impMore">Show more (' + (shown.length - (imp.limit || 300)) + ')</button>' : '');
   html += '<div class="btns mt"><button class="btn" data-act="impCancel">Cancel</button><button class="btn primary" data-act="impGo">Import ' + inc.length + ' transaction' + (inc.length===1?'':'s') + '</button></div>';
   return html;
@@ -2111,7 +2248,7 @@ CHANGES.impWho = function(el){ ui.imp.memberId = el.value; };
 CHANGES.impInc = function(el){ var r = ui.imp.rows[+el.getAttribute('data-i')]; r.include = el.checked; el.closest('tr').classList.toggle('off', !el.checked); };
 CHANGES.impType = function(el){
   var r = ui.imp.rows[+el.getAttribute('data-i')]; r.type = el.value; r.flag = false; r.touched = true;
-  if (r.type === 'expense' && !r.categoryId) r.categoryId = 'c-other';
+  if ((r.type === 'expense' || r.type === 'refund') && !r.categoryId) r.categoryId = 'c-other';
   render(true);
 };
 CHANGES.impCat = function(el){
@@ -2151,7 +2288,9 @@ ACTIONS.impGo = function(){
   imp.rows.forEach(function(r){
     if (!r.include || r.dup) return;
     if (r.touched && r.type === 'expense' && r.categoryId && r.categoryId !== 'c-other') { var k = merchantKey(r.desc); if (!learned[k]) { learnRule(r.desc, r.categoryId); learned[k] = 1; } }
-    var tx = {id:'t-' + uid(), date:r.date, amount:Math.abs(r.amount), type:r.type, categoryId:r.type === 'expense' ? (r.categoryId || 'c-other') : null, goalId:null,
+    // a refund is money back on a spending line: stored as a negative expense
+    var refund = r.type === 'refund';
+    var tx = {id:'t-' + uid(), date:r.date, amount:refund ? -Math.abs(r.amount) : Math.abs(r.amount), type:refund ? 'expense' : r.type, categoryId:r.type === 'expense' || refund ? (r.categoryId || 'c-other') : null, goalId:null,
       memberId:imp.memberId, note:prettyMerchant(r.desc), raw:r.desc, source:'import', importKey:r.key, createdOn:t, createdAt:now()};
     upsert('tx', tx); n++;
   });
@@ -2300,6 +2439,7 @@ SHEETS.recap = function(sh){
     (r && r.reward > 0 ? '<div class="nudge gold" style="cursor:default"><div class="e">🎉</div><div><div class="t">' + fmtR(r.reward) + ' added to your Reward Pot</div><div class="small muted">' + r.pct + '% of your ' + fmtR(r.surplus) + ' surplus. Move the other ' + fmtR(r.surplus - r.reward) + ' to savings if you haven\'t yet.</div></div></div>'
       : s.income > 0 ? '<div class="nudge" style="cursor:default"><div class="e">🌱</div><div><div class="t">No surplus this time</div><div class="small muted">Spending matched or passed income. One small change this month makes a difference.</div></div></div>'
       : '<div class="nudge" style="cursor:default"><div class="e">💡</div><div><div class="t">Log your income this month</div><div class="small muted">The Reward Pot fills from income minus spending, so record payday.</div></div></div>') +
+    (state.household.carryOver !== false ? '<p class="small mt">↪️ <b>' + fmtR(carryIn(nextPeriodStart(sh.p))) + '</b> brought forward into ' + esc(periodName(nextPeriodStart(sh.p))) + ' — give it a job on the Budget tab.</p>' : '') +
     '<p class="small mt">Tiers reset today. Everyone starts at Bronze — first check-in earns points.</p><button class="btn primary block" data-act="closeSheet">Let\'s go 🚀</button>';
 };
 
