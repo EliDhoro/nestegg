@@ -904,7 +904,7 @@ function viewNav(){
     '<button class="add" data-act="quickAdd" aria-label="Add">+</button>' + b('wealth','🌱','Wealth') + b('rewards','🏆','Rewards') + '</div></nav>';
 }
 function syncIcon(){
-  var connected = !!device.driveFileId || Drive.tokenValid();
+  var connected = Relay.ready() || !!device.driveFileId || Drive.tokenValid();
   var dot = (connected && device.dirty) || device.syncError ? '<span class="dot"></span>' : '';
   return '<button class="iconbtn" data-act="syncNow" title="' + (connected ? 'Sync now' : 'Sync is off — tap to set up') + '"><span style="' + (connected ? '' : 'opacity:.35;filter:grayscale(1)') + '">☁️</span>' + dot + '</button>';
 }
@@ -1709,7 +1709,7 @@ function viewOnboarding(){
   if (o.step === 0) {
     html += '<div class="logo">🪺</div><h1>Nestegg</h1><p class="lead">Budget together. Build the habit. Grow your nest egg.</p>' +
       '<button class="choice" data-act="obGo" data-id="1"><span class="e">🏡</span><div><div class="t">Set up our household</div><div class="s">First time — takes about a minute</div></div></button>' +
-      '<button class="choice" data-act="obJoin"><span class="e">☁️</span><div><div class="t">Join my partner\'s household</div><div class="s">Already set up on another device — sign in to Google Drive</div></div></button>' +
+      '<button class="choice" data-act="obJoin"><span class="e">☁️</span><div><div class="t">Join my partner\'s household</div><div class="s">Already set up on another device — paste the join code</div></div></button>' +
       '<label class="choice" style="cursor:pointer"><span class="e">📦</span><div><div class="t">Restore from a backup file</div><div class="s">Moving to a new phone or PC</div></div><input type="file" accept=".json,application/json" data-change="restoreFile" class="hidden"></label>' +
       '<p class="tiny muted center mt2">Your money data stays on your devices and your own Google Drive. No ads, no fees.</p>';
   } else if (o.step === 1) {
@@ -1727,6 +1727,11 @@ function viewOnboarding(){
       '<label class="row" style="margin-top:14px;gap:12px"><span class="toggle"><input type="checkbox" data-change="obChk" data-k="quick"' + (o.quick !== false ? ' checked' : '') + '><span></span></span><span class="small"><b>Give us a starter budget</b><br><span class="muted">Splits your income across typical SA categories, with 10% to savings. Importing statements later makes it more accurate.</span></span></label></div>' +
       '<div class="btns mt"><button class="btn" data-act="obGo" data-id="1">Back</button><button class="btn primary" data-act="obFinish">Start budgeting 🎉</button></div>';
   } else if (o.step === 9) {
+    html += '<div class="logo">🔗</div><h1>Join your household</h1><p class="lead">On your partner\'s Nestegg, open ⚙️ Settings → Sync → <b>Share join code</b>, send it to yourself (WhatsApp is fine), and paste it here.</p>' +
+      '<div class="card"><label class="field"><textarea class="input" id="f-join" rows="3" placeholder="NEST1:…"></textarea></label><button class="btn primary block" data-act="joinCodeGo">Join</button>' +
+      (device.joinError ? '<p class="small neg mt">' + esc(device.joinError) + '</p>' : '') + '</div>' +
+      '<button class="btn ghost block mt" data-act="obGo" data-id="10">Use Google Drive sign-in instead</button><button class="btn ghost block" data-act="obGo" data-id="0">Back</button>';
+  } else if (o.step === 10) {
     html += '<div class="logo">☁️</div><h1>Join with Google Drive</h1>';
     if (!Drive.clientId()) {
       html += '<p class="lead">This copy of the app isn\'t connected to Google yet. Paste the Client ID from the setup guide (step 3).</p><div class="card"><label class="field"><span>Google OAuth Client ID</span><input class="input" id="f-cid" placeholder="xxxx.apps.googleusercontent.com"></label>' +
@@ -1736,7 +1741,7 @@ function viewOnboarding(){
     } else {
       html += '<p class="lead">Sign in with the <b>same Google account</b> your partner connected. Your household will download to this device.</p><button class="btn primary block" data-act="obJoinSignIn">Sign in with Google</button>';
     }
-    html += '<button class="btn ghost block mt" data-act="obGo" data-id="0">Back</button>';
+    html += '<button class="btn ghost block mt" data-act="obGo" data-id="9">Back</button>';
   }
   return html + '</div>';
 }
@@ -1761,7 +1766,7 @@ SHEETS.welcome = function(){
     '<div class="nudge"><div class="e">💪</div><div><div class="t">Log the things you DON\'T buy</div><div class="small muted">Skipped purchases earn points and pile up as "money not spent".</div></div></div>' +
     '<div class="nudge"><div class="e">☕</div><div><div class="t">Have a weekly money date</div><div class="small muted">15 minutes together. Your surplus becomes a guilt-free Reward Pot.</div></div></div>' +
     '<div class="btns mt"><button class="btn primary" data-act="welcomeImport">📄 Import statements</button><button class="btn" data-act="welcomeStart">Start logging</button></div>' +
-    '<p class="tiny muted mt">Next: set up Google Drive sync in ⚙️ Settings so ' + esc(partner() ? partner().name : 'your partner') + ' can join from her phone.</p>';
+    '<p class="tiny muted mt">Next: turn on automatic sync in ⚙️ Settings so ' + esc(partner() ? partner().name : 'your partner') + ' can join from her phone.</p>';
 };
 ACTIONS.welcomeImport = function(){ closeSheet(); openView('import'); };
 ACTIONS.welcomeStart = function(){ closeSheet(); openAdd({type:'expense'}); };
@@ -1805,17 +1810,27 @@ VIEWS.settings = function(){
     '<div class="li tap" data-act="view" data-id="household"><div class="main"><div class="t">' + esc(state.household.name) + '</div><div class="s">' + esc(members().map(function(m){ return m.name; }).join(' & ')) + ' · month starts on the ' + state.household.periodStartDay + 'th</div></div><span>›</span></div>' +
     '<div class="li tap" data-act="switchMe"><div class="main"><div class="t">This device is ' + esc(me().name) + '\'s</div><div class="s">Tap to switch</div></div><span>›</span></div></div></div>';
   // sync
-  html += '<div class="card"><h2>☁️ Sync with Google Drive</h2>';
-  if (!Drive.clientId()) {
-    html += '<p class="small muted">Not set up yet. Follow step 3 of the setup guide, then paste your Client ID here. Until then, everything is saved on this device only.</p>';
-  } else {
-    html += '<p class="small">' + (connected ? '✅ Connected' + (device.lastSync ? ' · last synced ' + timeAgo(device.lastSync) : '') : 'Not connected on this device.') + '</p>' +
+  html += '<div class="card"><h2>☁️ Sync between your devices</h2>';
+  if (Relay.ready()) {
+    html += '<p class="small">✅ Automatic sync is on' + (device.lastSync ? ' · last synced ' + timeAgo(device.lastSync) : '') + '</p>' +
       (device.syncError ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
-      '<div class="btns">' + (connected ? '<button class="btn primary" data-act="syncNow">Sync now</button><button class="btn" data-act="driveDisconnect">Disconnect</button>' : '<button class="btn primary" data-act="driveConnect">Connect Google Drive</button>') + '</div>' +
-      '<label class="row mt" style="gap:12px"><span class="toggle"><input type="checkbox" data-change="autoSync"' + (device.autoSync ? ' checked' : '') + '><span></span></span><span class="small">Sync automatically when I open the app</span></label>';
+      '<div class="btns"><button class="btn primary" data-act="syncNow">Sync now</button><button class="btn" data-act="showJoinCode">🔗 Share join code</button></div>' +
+      '<button class="btn ghost sm mt" data-act="relayDisconnect">Turn off sync on this device</button>';
+  } else {
+    html += '<p class="small">Keep both phones and PCs up to date by themselves — no signing in. Free, and it runs in your own Google account.</p>' +
+      (device.syncError && !connected ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
+      '<div class="btns"><button class="btn primary" data-act="view" data-id="relaySetup">Set up automatic sync</button><button class="btn" data-act="enterJoinCode">I have a join code</button></div>' +
+      '<p class="tiny muted">Set it up once (on a computer); every other device just pastes the join code.</p>';
+    html += '<details class="mt"' + (connected ? ' open' : '') + '><summary class="small muted">Old way: Google Drive sign-in (stops after an hour)</summary>';
+    if (!Drive.clientId()) html += '<p class="small muted">Not set up.</p>';
+    else html += '<p class="small">' + (connected ? '✅ Connected' + (device.lastSync ? ' · last synced ' + timeAgo(device.lastSync) : '') : 'Not connected on this device.') + '</p>' +
+      (device.syncError && connected ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
+      '<div class="btns">' + (connected ? '<button class="btn" data-act="syncNow">Sync now</button><button class="btn" data-act="driveDisconnect">Disconnect</button>' : '<button class="btn" data-act="driveConnect">Connect Google Drive</button>') + '</div>' +
+      '<label class="row mt" style="gap:12px"><span class="toggle"><input type="checkbox" data-change="autoSync"' + (device.autoSync ? ' checked' : '') + '><span></span></span><span class="small">Sync automatically when I open the app</span></label>' +
+      '<label class="field mt"><span>Google Client ID</span><input class="input" id="f-cid2" value="' + esc(device.clientId || CONFIG.GOOGLE_CLIENT_ID) + '" placeholder="xxxx.apps.googleusercontent.com"></label><button class="btn sm" data-act="saveCid">Save Client ID</button>';
+    html += '</details>';
   }
-  html += '<details class="mt"><summary class="small muted">Google Client ID</summary><label class="field"><input class="input" id="f-cid2" value="' + esc(device.clientId || CONFIG.GOOGLE_CLIENT_ID) + '" placeholder="xxxx.apps.googleusercontent.com"></label><button class="btn sm" data-act="saveCid">Save Client ID</button>' +
-    '<p class="tiny muted">Redirect URI to register: <span class="code">' + esc(Drive.redirectUri()) + '</span></p></details></div>';
+  html += '</div>';
   // import & backup
   html += '<div class="card"><h2>📦 Data</h2><div class="list">' +
     '<div class="li tap" data-act="view" data-id="import"><div class="ico">📄</div><div class="main"><div class="t">Import bank statements</div><div class="s">FNB, GoTyme, any CSV or PDF</div></div></div>' +
@@ -2365,60 +2380,242 @@ var Drive = {
   }
 };
 
-var _syncing = false, _syncTimer = null;
+/* ---------- automatic sync: a small Apps Script in the household's own Google account ---------- */
+// Google sign-ins from a web page only last an hour, so syncing straight to Drive kept stopping. Instead the household
+// deploys this script (free) once; it keeps the data file in their Drive and serves it to devices that know the key.
+// No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
+// so a device that missed something merges first and tries again — nobody's changes get overwritten.
+var RELAY_SCRIPT = [
+  '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
+  "var KEY = '%KEY%';",
+  "var FILE = 'nestegg-household-data.json';",
+  '',
+  'function doGet(e) { return reply({ok: true, nestegg: true}); }',
+  'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} return reply(handle(p)); }',
+  '',
+  'function handle(p) {',
+  "  if (p.key !== KEY) return {ok: false, error: 'bad-key'};",
+  '  var lock = LockService.getScriptLock(); lock.waitLock(20000);',
+  '  try {',
+  "    var props = PropertiesService.getScriptProperties(), rev = Number(props.getProperty('rev') || 0), file = dataFile(props);",
+  "    if (p.action === 'put') {",
+  "      if (Number(p.base) !== rev) return {ok: false, error: 'conflict', rev: rev};",
+  "      file.setContent(p.data); rev++; props.setProperty('rev', String(rev));",
+  '      return {ok: true, rev: rev};',
+  '    }',
+  '    if (p.since !== null && p.since !== undefined && Number(p.since) === rev) return {ok: true, rev: rev, same: true};',
+  '    return {ok: true, rev: rev, data: file.getBlob().getDataAsString()};',
+  '  } finally { lock.releaseLock(); }',
+  '}',
+  '',
+  '// Uses the file Nestegg already saved in this Drive, or makes a new one',
+  'function dataFile(props) {',
+  "  var id = props.getProperty('file');",
+  '  if (id) { try { var f = DriveApp.getFileById(id); if (!f.isTrashed()) return f; } catch (x) {} }',
+  '  var it = DriveApp.getFilesByName(FILE), best = null;',
+  '  while (it.hasNext()) { var g = it.next(); if (!g.isTrashed() && (!best || g.getLastUpdated() > best.getLastUpdated())) best = g; }',
+  "  if (!best) best = DriveApp.createFile(FILE, '');",
+  "  props.setProperty('file', best.getId());",
+  '  return best;',
+  '}',
+  '',
+  'function reply(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }'
+].join('\n');
+
+var Relay = {
+  ready: function(){ return !!(device.relayUrl && device.relayKey); },
+  newKey: function(){
+    var a = new Uint8Array(18); (window.crypto || window.msCrypto).getRandomValues(a);
+    return Array.prototype.map.call(a, function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
+  },
+  validUrl: function(u){ return /^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[\w-]+\/exec$/.test(u); },
+  // Everything goes in a POST body (the key never sits in a URL). text/plain keeps it a "simple" request, which Apps Script allows.
+  call: function(body, url){
+    body.key = body.key || device.relayKey;
+    return fetch(url || device.relayUrl, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body)})
+      .then(function(r){ return r.text(); }, function(){ var e = new Error('No connection right now — it will sync when you\'re back online.'); e.offline = true; throw e; })
+      .then(function(t){
+        var j; try { j = JSON.parse(t); } catch(x){ throw new Error('The sync script isn\'t answering. Check it\'s deployed as a Web app with access for "Anyone".'); }
+        if (j.error === 'bad-key') throw new Error('This device\'s sync code doesn\'t match the script. Ask for a fresh join code.');
+        return j;
+      });
+  },
+  pull: function(since){ return this.call({action:'get', since: since == null ? null : since}); },
+  push: function(base, text){ return this.call({action:'put', base:base, data:text}); },
+  joinCode: function(){ return 'NEST1:' + btoa(device.relayUrl + ' ' + device.relayKey); },
+  parseCode: function(code){
+    var m = /NEST1:([A-Za-z0-9+\/=]+)/.exec((code || '').replace(/\s+/g, ''));
+    if (!m) return null;
+    try { var p = atob(m[1]).split(' '); return this.validUrl(p[0]) && p[1] ? {url:p[0], key:p[1]} : null; } catch(e){ return null; }
+  }
+};
+
+// Same safety check for both ways of syncing: Drive may hold a different household than this device
+function remoteHousehold(local, remote){
+  if (remote && remote.household && local.household && remote.household.id !== local.household.id) {
+    if (live('tx').length > 0 && !confirmBox('Your sync holds a different household ("' + remote.household.name + '"). Replace the data on this device with it?\n\nTip: export a backup first if unsure.')) {
+      throw new Error('Sync stopped: a different household is in your sync.');
+    }
+    return blankState();
+  }
+  return local;
+}
+function noHousehold(){
+  if (device.joining) { device.joinError = 'No household found yet. Make sure your partner has turned sync on first, then try again.'; saveDevice(); }
+  return null;
+}
+function relaySync(attempt){
+  return Relay.pull(device.relayRev).then(function(r){
+    if (!r.ok) throw new Error('Sync problem: ' + (r.error || 'unknown'));
+    var remote = null;
+    if (r.same) {
+      // nothing new elsewhere, and this device already holds everything that was there
+      if (!device.dirty || !state.household) { device.relayRev = r.rev; return state.household ? 'ok' : noHousehold(); }
+    } else if (r.data) {
+      try { remote = normalizeState(JSON.parse(r.data)); } catch(e){ remote = null; }
+    }
+    var local = remoteHousehold(state, remote), merged = remote ? mergeStates(local, remote) : local;
+    if (!merged.household) return noHousehold();
+    state = merged; saveState(true);
+    var text = canonical(merged);
+    if (remote && canonical(remote) === text) { device.relayRev = r.rev; return 'ok'; }
+    return Relay.push(r.rev, text).then(function(p){
+      if (p.error === 'conflict' && attempt < 4) return relaySync(attempt + 1); // another device saved first: take theirs, merge, try again
+      if (!p.ok) throw new Error('Sync problem: ' + (p.error || 'unknown'));
+      device.relayRev = p.rev; return 'ok';
+    });
+  });
+}
+
+var _syncing = false, _syncAgain = false, _syncTimer = null, _changes = 0;
 function scheduleSync(){
-  if (!device.driveFileId || !Drive.tokenValid()) return;
+  _changes++;
+  if (!Relay.ready() && (!device.driveFileId || !Drive.tokenValid())) return;
   clearTimeout(_syncTimer); _syncTimer = setTimeout(function(){ runSync(false); }, 2500);
 }
 function runSync(interactive){
-  if (_syncing) return Promise.resolve();
-  if (!Drive.clientId()) { if (interactive) { openView('settings'); toast('Set up Google Drive sync first'); } return Promise.resolve(); }
-  if (!Drive.tokenValid()) { if (interactive) Drive.signIn(false); return Promise.resolve(); }
+  // asked while a sync is under way: run once more afterwards, so changes made meanwhile aren't left behind
+  if (_syncing) { _syncAgain = true; return Promise.resolve(); }
+  var job, changesAtStart = _changes;
+  if (Relay.ready()) job = function(){ return relaySync(0); };
+  else {
+    if (!Drive.clientId()) { if (interactive) { openView('settings'); toast('Set up sync first'); } return Promise.resolve(); }
+    if (!Drive.tokenValid()) { if (interactive) Drive.signIn(false); return Promise.resolve(); }
+    job = driveSync;
+  }
   _syncing = true;
+  return job().then(function(res){
+    _syncing = false;
+    if (res === 'ok') {
+      device.dirty = _changes !== changesAtStart; device.lastSync = now(); device.syncError = '';
+      var wasJoining = device.joining; device.joining = false; device.joinError = '';
+      saveDevice(); render(true);
+      if (wasJoining) { toast('Household downloaded ✓'); openSheet('switchMe'); }
+      else if (interactive) toast('Synced ✓');
+    } else render(true);
+    if (_syncAgain || device.dirty) { _syncAgain = false; scheduleSync(); }
+  }).catch(function(e){
+    _syncing = false; _syncAgain = false;
+    if (e.auth) { if (interactive) Drive.signIn(false); else { device.syncError = 'Sign in again to sync.'; saveDevice(); render(true); } return; }
+    device.syncError = e.message || String(e);
+    if (device.joining) device.joinError = device.syncError;
+    saveDevice(); render(true);
+    if (interactive && !e.offline) toast(device.syncError);
+  });
+}
+// The older way: straight to Google Drive with a sign-in that lasts an hour
+function driveSync(){
   var fileId;
   return Drive.findFile().then(function(id){
     fileId = id;
     return id ? Drive.download(id).then(function(t){ try { return normalizeState(JSON.parse(t)); } catch(e){ return blankState(); } }) : null;
   }).then(function(remote){
-    var local = state;
-    if (remote && remote.household && local.household && remote.household.id !== local.household.id) {
-      var localHasData = live('tx').length > 0;
-      if (localHasData && !confirmBox('Google Drive has a different household ("' + remote.household.name + '"). Replace the data on this device with it?\n\nTip: export a backup first if unsure.')) {
-        throw new Error('Sync stopped: different household on Drive.');
-      }
-      local = blankState();
-    }
+    var local = remoteHousehold(state, remote);
     var merged = remote ? mergeStates(local, remote) : local;
-    if (!merged.household) {
-      if (device.joining) { device.joinError = 'No household found in this Google Drive. Make sure your partner has connected Drive first, and that you signed in with the same Google account.'; saveDevice(); }
-      return null;
-    }
+    if (!merged.household) return noHousehold();
     state = merged; saveState(true);
     var text = canonical(merged);
     var needsUpload = !remote || canonical(remote) !== text;
     var p = !fileId ? Drive.create(text).then(function(id){ device.driveFileId = id; })
       : needsUpload ? Drive.update(fileId, text).then(function(){ device.driveFileId = fileId; }) : Promise.resolve(device.driveFileId = fileId);
     return p.then(function(){ return 'ok'; });
-  }).then(function(res){
-    _syncing = false;
-    if (res === 'ok') {
-      device.dirty = false; device.lastSync = now(); device.syncError = '';
-      var wasJoining = device.joining; device.joining = false; device.joinError = '';
-      saveDevice(); render(true);
-      if (wasJoining) { toast('Household downloaded ✓'); openSheet('switchMe'); }
-      else if (interactive) toast('Synced ✓');
-    } else render(true);
-  }).catch(function(e){
-    _syncing = false;
-    if (e.auth) { if (interactive) Drive.signIn(false); else { device.syncError = 'Sign in again to sync.'; saveDevice(); render(true); } return; }
-    device.syncError = e.message || String(e); saveDevice(); render(true);
-    if (interactive) toast('Sync problem: ' + device.syncError);
   });
 }
 ACTIONS.syncNow = function(){
-  if (!Drive.clientId()) { openView('settings'); toast('Set up Google Drive sync below'); return; }
+  if (Relay.ready()) { runSync(true); return; }
+  if (!Drive.clientId()) { openView('settings'); toast('Set up sync below'); return; }
   if (!device.driveFileId && !Drive.tokenValid()) { openView('settings'); return; }
   runSync(true);
+};
+/* ---------- automatic sync: setup, join code ---------- */
+VIEWS.relaySetup = function(){
+  if (!device.relayKeyDraft) { device.relayKeyDraft = Relay.newKey(); saveDevice(); }
+  var html = topbar('Automatic sync', 'One-time setup · about 10 minutes', {back:true, backAct:'toSettings', right:' '});
+  function step(n, body){ return '<div class="row" style="gap:12px;align-items:flex-start;margin:12px 0"><span class="pill green">' + n + '</span><div class="small" style="flex:1">' + body + '</div></div>'; }
+  html += '<div class="card"><p class="small muted">Do this on a computer, signed in to the <b>Google account you want to keep your budget in</b>. It\'s free and runs in your own account. After this, every device syncs by itself — no more signing in.</p>' +
+    step(1, 'Open <a href="https://script.new" target="_blank" rel="noopener">script.new</a> — it starts a new Apps Script project. Delete the few lines already there.') +
+    step(2, 'Copy this and paste it into the project, then press <b>Ctrl+S</b> to save:<textarea class="input code" id="relay-code" readonly rows="6" style="width:100%;margin-top:6px;font-size:11px">' + esc(RELAY_SCRIPT.replace('%KEY%', device.relayKeyDraft)) + '</textarea>' +
+      '<button class="btn sm mt" data-act="copyRelayCode">📋 Copy the code</button>') +
+    step(3, 'Click <b>Deploy</b> (top right) → <b>New deployment</b> → the ⚙️ next to "Select type" → <b>Web app</b>. Set <b>Execute as: Me</b> and <b>Who has access: Anyone</b>. Click <b>Deploy</b>.') +
+    step(4, 'Google asks you to authorise it: choose your account → <b>Advanced</b> → <b>Go to … (unsafe)</b> → <b>Allow</b>. It\'s your own script, so this is expected.') +
+    step(5, 'Copy the <b>Web app URL</b> (it ends in <span class="code">/exec</span>) and paste it here:<label class="field" style="margin-top:6px"><input class="input" id="relay-url" placeholder="https://script.google.com/macros/s/…/exec" value="' + esc(device.relayUrlDraft || '') + '"></label>' +
+      '<button class="btn primary block" data-act="relayConnect">Connect this device</button>') +
+    (device.syncError && ui.relayTried ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') + '</div>';
+  return html;
+};
+ACTIONS.toSettings = function(){ openView('settings'); };
+ACTIONS.copyRelayCode = function(){ copyText($('#relay-code').value, 'Code copied — paste it into Apps Script'); };
+function copyText(text, msg){
+  function fallback(){ var t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); try { document.execCommand('copy'); toast(msg); } catch(e){ toast('Select the text and copy it'); } document.body.removeChild(t); }
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function(){ toast(msg); }, fallback); else fallback();
+}
+function relayUse(url, key, joining){
+  device.relayUrl = url; device.relayKey = key; device.relayRev = null; device.syncError = '';
+  device.joining = !!joining; device.joinError = ''; device.dirty = true; saveDevice();
+}
+ACTIONS.relayConnect = function(){
+  var url = $('#relay-url').value.trim(); device.relayUrlDraft = url; saveDevice();
+  if (!Relay.validUrl(url)) { toast('Paste the Web app URL — it starts with https://script.google.com and ends in /exec'); return; }
+  ui.relayTried = true;
+  var prev = {url:device.relayUrl, key:device.relayKey};
+  relayUse(url, device.relayKeyDraft, false);
+  runSync(true).then(function(){
+    if (device.syncError) { device.relayUrl = prev.url; device.relayKey = prev.key; saveDevice(); render(true); return; }
+    device.relayKeyDraft = null; device.relayUrlDraft = null; device.driveFileId = null; saveDevice();
+    ui.view = 'settings'; render(); openSheet('joinCode', {fresh:true});
+  });
+};
+SHEETS.joinCode = function(sh){
+  var p = partner();
+  return '<h2>' + (sh.fresh ? '✅ Automatic sync is on' : '🔗 Join code') + '</h2>' +
+    '<p class="small">On ' + esc(p ? p.name + '\'s' : 'the other') + ' phone or PC: open Nestegg → <b>Join my partner\'s household</b> (or ⚙️ Settings → Sync → <b>I have a join code</b>) and paste this:</p>' +
+    '<textarea class="input code" id="join-code" readonly rows="3" style="width:100%;font-size:12px">' + esc(Relay.joinCode()) + '</textarea>' +
+    '<div class="btns mt"><button class="btn primary" data-act="shareJoinCode">' + (navigator.share ? '📤 Send it' : '📋 Copy') + '</button>' + (navigator.share ? '<button class="btn" data-act="copyJoinCode">📋 Copy</button>' : '') + '</div>' +
+    '<p class="tiny muted mt">🔒 Only send it to each other — anyone with this code can see your budget.</p>';
+};
+ACTIONS.copyJoinCode = function(){ copyText(Relay.joinCode(), 'Join code copied'); };
+ACTIONS.shareJoinCode = function(){
+  if (!navigator.share) { ACTIONS.copyJoinCode(); return; }
+  navigator.share({title:'Nestegg join code', text:Relay.joinCode()}).catch(function(){});
+};
+ACTIONS.showJoinCode = function(){ openSheet('joinCode', {}); };
+// Joining with a code: from the welcome screen (no household yet) or from Settings
+function joinWithCode(code){
+  var c = Relay.parseCode(code);
+  if (!c) { toast('That doesn\'t look like a Nestegg join code — copy the whole thing'); return; }
+  relayUse(c.url, c.key, !state.household);
+  return runSync(true);
+}
+ACTIONS.joinCodeGo = function(){ joinWithCode($('#f-join').value); };
+ACTIONS.enterJoinCode = function(){ openSheet('enterJoin', {}); };
+SHEETS.enterJoin = function(){
+  return '<h2>🔗 Join with a code</h2><p class="small muted">Paste the join code from your partner\'s Nestegg (⚙️ Settings → Sync → Share join code). This device\'s entries are kept and added to the household.</p>' +
+    '<label class="field"><textarea class="input" id="f-join" rows="3" placeholder="NEST1:…"></textarea></label><button class="btn primary block" data-act="joinCodeSheetGo">Join</button>';
+};
+ACTIONS.joinCodeSheetGo = function(){ var v = $('#f-join').value; closeSheet(); var p = joinWithCode(v); if (p) p.then(function(){ if (!device.syncError) toast('Joined ✓ — syncing automatically'); }); };
+ACTIONS.relayDisconnect = function(){
+  if (!confirmBox('Stop syncing on this device? Your data stays here and in your Google account.')) return;
+  device.relayUrl = null; device.relayKey = null; device.relayRev = null; device.lastSync = 0; device.syncError = ''; saveDevice(); render(true);
 };
 ACTIONS.driveConnect = function(){ if (Drive.tokenValid()) runSync(true); else Drive.signIn(false); };
 ACTIONS.driveDisconnect = function(){
@@ -2457,7 +2654,9 @@ function init(){
   if (device.autoSync == null) device.autoSync = !IS_IOS;
   var r = Drive.handleRedirect();
   render();
-  if (r === 'ok') {
+  if (Relay.ready()) {
+    if (state.household || device.joining) runSync(false);
+  } else if (r === 'ok') {
     runSync(false).then(function(){ if (device.driveFileId && !device.syncError) toast('☁️ Connected to Google Drive'); });
   } else if (state.household && device.driveFileId) {
     if (Drive.tokenValid()) runSync(false);
@@ -2474,9 +2673,11 @@ function init(){
   document.addEventListener('visibilitychange', function(){
     if (document.visibilityState !== 'visible') return;
     if (todayStr() !== lastDay) { lastDay = todayStr(); if (!ui.sheet) render(true); checkRecap(); }
-    if (state.household && device.driveFileId && Drive.tokenValid()) runSync(false);
+    if (state.household && (Relay.ready() || (device.driveFileId && Drive.tokenValid()))) runSync(false);
   });
-  window.addEventListener('online', function(){ if (device.dirty) scheduleSync(); });
+  window.addEventListener('online', function(){ if (Relay.ready() || device.dirty) runSync(false); });
+  // with automatic sync, pick up the other phone's entries while the app stays open
+  setInterval(function(){ if (document.visibilityState === 'visible' && state.household && Relay.ready()) runSync(false); }, 90000);
 }
 init();
 

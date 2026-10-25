@@ -3,7 +3,7 @@
 Nestegg is your household budgeting app. It runs on both PCs, your Redmi and her iPhone from **one web address**, works offline, and costs **R0** — no hosting fees, no subscriptions.
 
 - **The app** lives free on GitHub Pages.
-- **Your data** lives on each device and syncs through a private file in **your own Google Drive** (free 15 GB). Nobody else sees it, and it survives losing a PC or phone.
+- **Your data** lives on each device and syncs through a private file in **your own Google Drive** (free 15 GB), passed between devices by a small script in your own Google account. Nobody else sees it, and it survives losing a PC or phone.
 
 Setup takes about 30 minutes once. You need a GitHub account (free) and a Google account.
 
@@ -39,45 +39,17 @@ It then opens full-screen from its own icon, like a normal app.
 
 **Set up the household on ONE device first (yours).** Your wife joins in Step 3 — don't set up separately on her phone.
 
-## Step 3 — Sync between your devices with Google Drive (free, ~15 min)
+## Step 3 — Automatic sync between your devices (free, ~10 min, once)
 
-### 3a. Choose the Google account
-The simplest is **one shared household Google account** that you both sign in with inside Nestegg — create a new free Gmail, for example `dhoro.household@gmail.com`. (You can use your own Gmail on both devices instead.) Both of you must use the **same** account in Nestegg.
+A small script in **your own Google account** keeps the data file in your Drive and passes it between your devices. No device ever has to sign in to Google, so it keeps syncing by itself — on the iPhone too.
 
-### 3b. Create a free Google "Client ID"
-This lets *your* copy of the app ask Google for permission to save its file in Drive. No billing or card is needed.
+1. **On a computer**, sign in to the Google account you want your budget kept in (one shared household Gmail is simplest).
+2. In Nestegg on that computer: ⚙️ **Settings → Sync → Set up automatic sync**, and follow the five steps on screen:
+   open **script.new** → paste the code (📋 *Copy the code*) → **Deploy → New deployment → Web app**, *Execute as: Me*, *Who has access: Anyone* → authorise it (**Advanced → Go to … (unsafe) → Allow** — it's your own script) → paste the **Web app URL** (ends in `/exec`) back into Nestegg → **Connect this device**.
+3. Nestegg shows a **join code**. Send it to your own phone and your partner (WhatsApp is fine — only to each other: anyone with it can see your budget).
+4. **Every other device:** open Nestegg → **Join my partner's household** (or ⚙️ Settings → Sync → **I have a join code**) → paste the code → choose who's using it.
 
-1. Go to **console.cloud.google.com** and sign in with the household account.
-2. Top bar → project picker → **New project** → name it `Nestegg` → **Create**. Make sure it's selected.
-3. Menu ☰ → **APIs & Services** → **Library** → search **Google Drive API** → **Enable**.
-4. Menu ☰ → **Google Auth Platform** (older screens: *APIs & Services → OAuth consent screen*) → **Get started**:
-   - App name: `Nestegg`; support email: the household account
-   - Audience: **External**
-   - Contact email: the household account → **Create**
-5. Still in Google Auth Platform → **Audience** → under *Test users* click **Add users** and add the household Gmail (and any other Gmail you'll sign in with).
-6. **Clients** (older screens: *Credentials → Create credentials → OAuth client ID*) → **Create client**:
-   - Application type: **Web application**
-   - Name: `Nestegg`
-   - **Authorized JavaScript origins** → Add: `https://EliDhoro.github.io`
-   - **Authorized redirect URIs** → Add: `https://EliDhoro.github.io/nestegg/` ← include the slash at the end
-   - **Create**, then copy the **Client ID** (ends in `.apps.googleusercontent.com`).
-
-> Nestegg only asks for the narrowest Drive permission (`drive.file`): it can see **only the one file it creates**, nothing else in your Drive.
-
-### 3c. Put the Client ID into the app (once, for every device)
-1. In your GitHub repository, click `index.html` → the **pencil ✏️ (Edit)** button.
-2. Press Ctrl+F and find `GOOGLE_CLIENT_ID: ''`.
-3. Paste your ID between the quotes: `GOOGLE_CLIENT_ID: '1234-abc.apps.googleusercontent.com'`
-4. **Commit changes**. Wait a minute. Close and reopen Nestegg on your devices (sometimes twice — it updates in the background).
-
-*(Alternative: paste it on each device under ⚙️ Settings → Sync → Google Client ID.)*
-
-### 3d. Connect
-- **Your device:** ⚙️ Settings → **Connect Google Drive** → sign in with the household account → allow. You'll see "☁️ Connected".
-  If Google says *"Google hasn't verified this app"*, tap **Advanced → Go to Nestegg** — it's your own app.
-- **Her iPhone:** open Nestegg → **Join my partner's household** → **Sign in with Google** (same household account) → choose her name. Your household downloads to her phone.
-
-From then on, every entry syncs. Tap the ☁️ at the top to sync on demand.
+From then on Nestegg syncs when it opens, a few seconds after every entry, when you switch back to it, and every minute and a half while it's open. If you'd already been syncing with Google Drive, the script picks up that same file, so nothing is lost.
 
 ---
 
@@ -101,12 +73,12 @@ Points move you up the tiers: 🥉 Bronze → 🥈 Silver (400) → 🥇 Gold (9
 - Rows highlighted in yellow need a look: usually transfers between your own accounts. Mark them as **Transfer** so they don't count. When you fix a shop's category, Nestegg remembers it for next time.
 
 ## New PC or new phone
-Open your address → install → **Join my partner's household** → sign in. Everything comes back.
+Open your address → install → **Join my partner's household** → paste the join code (⚙️ Settings → Sync → Share join code on any connected device). Everything comes back.
 No sync set up? ⚙️ Settings → **Export a backup** on the old device, then **Restore from a backup file** on the new one.
 
 ## Good to know
-- **Cost:** R0. GitHub Pages, Google Drive and Google Cloud's sign-in are free at this size.
+- **Cost:** R0. GitHub Pages, Google Drive and Apps Script are free at this size.
 - **Older iPhone SE (2016 model, iOS 15):** everything works. Use the calendar reminders, because web apps can't send notifications on iOS 15.
-- **iPhone sign-in:** if Google sign-in opens but doesn't come back to the home-screen app, tell Claude. There's a fix that changes how sign-in opens. Meanwhile, Nestegg in Safari works the same.
+- **Old Google Drive sign-in:** still available under ⚙️ Settings → Sync → *Old way*, but Google ends those sign-ins after an hour, so automatic sync is the one to use.
 - **Updating the app later:** replace the files in your GitHub repository. Your data isn't touched.
 - **Backups:** export one now and then (⚙️ Settings → Export a backup) and keep it somewhere safe.
