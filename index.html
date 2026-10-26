@@ -260,7 +260,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261026131133' // set by tools/build.py
+  BUILD: '20261026140454' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules'];
@@ -971,12 +971,24 @@ function nudges(){
   if (pot > 0) out.push({e:'🎉', t:fmtR(pot) + ' in your Reward Pot', s:'You earned it. Spend it guilt-free on something you both enjoy.', act:'tab', id:'rewards', cls:'gold'});
   return out.slice(0, 3);
 }
+// For the first week of a new budget month: say it started, and where last month's entries are (they're not lost)
+function newMonthCard(p){
+  var prev = prevPeriodStart(p), s = periodSummary(p), n = periodSummary(prev).txs.length;
+  if (s.dayIndex > 7 || !n || device.newMonthSeen === p) return '';
+  return '<div class="card span2" style="border:1.5px solid var(--gold)"><div class="row" style="gap:12px;align-items:flex-start"><span style="font-size:26px">🌅</span><div style="flex:1;min-width:0">' +
+    '<div class="strong">A new budget month started on ' + esc(fmtDate(p)) + '</div><div class="small muted">' + esc(periodName(p)) + ' runs ' + esc(periodRange(p)) + '. Your ' + n + ' entr' + (n === 1 ? 'y' : 'ies') +
+    ' from ' + esc(periodName(prev)) + ' are kept in that month — nothing is lost. Payday not in yet? Move the dates.</div>' +
+    '<div class="btns mt" style="flex-wrap:wrap"><button class="btn sm primary" data-act="seeMonth" data-id="' + prev + '">See ' + esc(periodName(prev)) + '</button>' +
+    '<button class="btn sm" data-act="editMonthDates">Change the dates</button><button class="btn sm ghost" data-act="newMonthOk">Got it</button></div></div></div></div>';
+}
+ACTIONS.seeMonth = function(el){ ui.tab = 'budget'; ui.view = null; ui.period = el.getAttribute('data-id'); render(); window.scrollTo(0, 0); };
+ACTIONS.newMonthOk = function(){ device.newMonthSeen = currentPeriod(); saveDevice(); render(true); };
 function viewHome(){
   var p = currentPeriod(), s = periodSummary(p), pts = pointsFor(p);
   var mine = memberStreak(me().id), pr = partner(), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
   var h = new Date().getHours(), greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   var html = topbar(greet + ', ' + esc(me().name), esc(periodName(p)) + ' budget · ' + s.daysLeft + ' day' + (s.daysLeft===1?'':'s') + ' left');
-  html += '<div class="grid two">';
+  html += '<div class="grid two">' + newMonthCard(p);
   // hero
   var perDay = s.daysLeft > 0 ? s.leftToSpend / s.daysLeft : 0;
   html += '<div class="card hero span2"><div class="row between"><div class="muted small strong">Left to spend this month</div><span class="pill gold">' + pts.tier.emoji + ' ' + pts.tier.name + ' · ' + pts.total + ' pts</span></div>' +
@@ -1093,7 +1105,10 @@ ACTIONS.resetMonthDates = function(){
 function viewBudget(){
   var p = ui.period || currentPeriod(), s = periodSummary(p), h = state.household;
   var html = topbar('Budget', 'Every rand gets a job');
-  html += periodNav(p, true) + '<div class="grid two mt">';
+  html += periodNav(p, true);
+  var prevS = periodSummary(prevPeriodStart(p));
+  if (p === currentPeriod() && s.dayIndex <= 7 && prevS.txs.length) html += '<p class="small muted center" style="margin:8px 0 0">New month — your earlier entries are in <button class="btn ghost sm" style="padding:2px 6px;min-height:0" data-act="seeMonth" data-id="' + prevS.start + '">' + esc(periodName(prevS.start)) + ' ›</button></p>';
+  html += '<div class="grid two mt">';
   var lta = s.leftToAssign;
   html += '<div class="card"><h2>The plan</h2>' +
     '<div class="li"><div class="main"><div class="t">Income</div><div class="s">Expected ' + fmtR(s.expectedIncome) + ' · received ' + fmtR(s.income) + '</div></div><button class="btn sm" data-act="editIncome" data-id="">+ Add</button></div>' +
@@ -1354,7 +1369,11 @@ VIEWS.activity = function(){
       var spentBy = x[0] === 'all' ? '' : ' ' + fmtR(sum(s.txs.filter(function(t){ return t.type === 'expense' && (t.method || 'none') === x[0]; }), function(t){ return t.amount; }));
       return '<button class="chip ' + ((f.method || 'all') === x[0] ? 'on' : '') + '" data-act="actMethod" data-id="' + x[0] + '">' + esc(x[1]) + '<span class="muted">' + spentBy + '</span></button>'; }).join('') + '</div></div>';
   html += '<div class="card mt">';
-  if (!txs.length) html += '<div class="empty"><span class="e">🔍</span>Nothing here.</div>';
+  if (!txs.length) {
+    var prevP = prevPeriodStart(p), prevN = periodSummary(prevP).txs.length;
+    html += '<div class="empty"><span class="e">🔍</span>' + (s.txs.length ? 'Nothing matches.' : 'Nothing logged in ' + esc(periodName(p)) + ' yet.') +
+      (!s.txs.length && prevN ? '<br><button class="btn primary mt" data-act="seeActivityMonth" data-id="' + prevP + '">See ' + esc(periodName(prevP)) + ' (' + prevN + ')</button>' : '') + '</div>';
+  }
   var lastDate = null;
   txs.forEach(function(t){
     if (t.date !== lastDate) { html += (lastDate ? '</div>' : '') + '<div class="date-h">' + fmtDay(t.date) + '</div><div class="list">'; lastDate = t.date; }
@@ -1365,6 +1384,7 @@ VIEWS.activity = function(){
 };
 ACTIONS.actType = function(el){ ui.actFilter.type = el.getAttribute('data-id'); render(true); };
 ACTIONS.actWho = function(el){ ui.actFilter.who = el.getAttribute('data-id'); render(true); };
+ACTIONS.seeActivityMonth = function(el){ ui.period = el.getAttribute('data-id'); render(); window.scrollTo(0, 0); };
 ACTIONS.actMethod = function(el){ ui.actFilter.method = el.getAttribute('data-id'); render(true); };
 var _searchT;
 INPUTS.actSearch = function(el){
@@ -1839,6 +1859,7 @@ VIEWS.settings = function(){
     '<div class="li tap" data-act="view" data-id="import"><div class="ico">📄</div><div class="main"><div class="t">Import bank statements</div><div class="s">FNB, GoTyme, any CSV or PDF</div></div></div>' +
     '<div class="li tap" data-act="exportBackup"><div class="ico">💾</div><div class="main"><div class="t">Export a backup</div><div class="s">One file with everything — keep it safe</div></div></div>' +
     '<label class="li tap" style="cursor:pointer"><div class="ico">♻️</div><div class="main"><div class="t">Restore from backup</div><div class="s">Merges with what\'s here — nothing is lost</div></div><input type="file" accept=".json,application/json" data-change="restoreFile" class="hidden"></label>' +
+    (beforeJoinCopy() ? '<div class="li tap" data-act="undoJoin"><div class="ico">↩️</div><div class="main"><div class="t">Undo joining</div><div class="s">Put this device back as it was on ' + esc(fmtDate(new Date(beforeJoinCopy().at).toISOString().slice(0, 10), true)) + '</div></div></div>' : '') +
     '<div class="li tap" data-act="exportCsv"><div class="ico">📊</div><div class="main"><div class="t">Export transactions (CSV)</div><div class="s">Open in Excel or Google Sheets</div></div></div></div></div>';
   // reminders
   html += '<div class="card"><h2>⏰ Reminders</h2><p class="small muted">Habits stick when they\'re triggered at the same time daily. Add these to your phone calendar — free, and they work even when the app is closed.</p><div class="list">' +
@@ -2453,16 +2474,33 @@ var Relay = {
   }
 };
 
-// Same safety check for both ways of syncing: Drive may hold a different household than this device
+// Both ways of syncing: the sync may hold a different household than this device (say each phone was set up on
+// its own). This device's records are never thrown away — they're added to the shared household, and a copy of the
+// device as it was is kept so joining can be undone from Settings.
+var LS_BEFORE_JOIN = 'nestegg-before-join-v1';
 function remoteHousehold(local, remote){
-  if (remote && remote.household && local.household && remote.household.id !== local.household.id) {
-    if (live('tx').length > 0 && !confirmBox('Your sync holds a different household ("' + remote.household.name + '"). Replace the data on this device with it?\n\nTip: export a backup first if unsure.')) {
-      throw new Error('Sync stopped: a different household is in your sync.');
-    }
-    return blankState();
+  if (!(remote && remote.household && local.household && remote.household.id !== local.household.id)) return local;
+  var n = live('tx').length;
+  if (n > 0 && !confirmBox('This device has its own household with ' + n + ' entr' + (n === 1 ? 'y' : 'ies') + '. They\'ll be added to the shared household ("' +
+      remote.household.name + '"), so nothing is lost.\n\nIf they\'re in the wrong month or under the wrong person, you can fix them afterwards. Continue?')) {
+    throw new Error('Sync stopped: this device has a different household. Nothing was changed.');
   }
-  return local;
+  try { localStorage.setItem(LS_BEFORE_JOIN, JSON.stringify({at:now(), state:local})); } catch(e){}
+  // the shared household's settings win, but this device's own groups come along so its categories keep their heading
+  var out = JSON.parse(JSON.stringify(local)), h = JSON.parse(JSON.stringify(remote.household));
+  var mine = (local.household.groups || []).filter(function(g){ return !(h.groups || DEFAULT_GROUPS).some(function(x){ return x.id === g.id; }); });
+  if (mine.length) h.groups = (h.groups || DEFAULT_GROUPS).concat(mine);
+  h.updatedAt = Math.max(+h.updatedAt || 0, +local.household.updatedAt || 0) + 1;
+  out.household = h;
+  return out;
 }
+function beforeJoinCopy(){ try { var s = localStorage.getItem(LS_BEFORE_JOIN); return s ? JSON.parse(s) : null; } catch(e){ return null; } }
+ACTIONS.undoJoin = function(){
+  var b = beforeJoinCopy(); if (!b) return;
+  if (!confirmBox('Put this device back exactly as it was on ' + fmtDate(new Date(b.at).toISOString().slice(0, 10), true) + ', before it joined, and turn off sync here? Anything logged on this device since then will be removed from it (it stays in the shared household).')) return;
+  state = normalizeState(b.state); device.relayUrl = null; device.relayKey = null; device.relayRev = null; device.driveFileId = null; device.lastSync = 0; device.syncError = '';
+  saveDevice(); saveState(true); localStorage.removeItem(LS_BEFORE_JOIN); ui.view = null; render(); toast('Back as it was before joining');
+};
 function noHousehold(){
   if (device.joining) { device.joinError = 'No household found yet. Make sure your partner has turned sync on first, then try again.'; saveDevice(); }
   return null;
@@ -2612,7 +2650,7 @@ function joinWithCode(code){
 ACTIONS.joinCodeGo = function(){ joinWithCode($('#f-join').value); };
 ACTIONS.enterJoinCode = function(){ openSheet('enterJoin', {}); };
 SHEETS.enterJoin = function(){
-  return '<h2>🔗 Join with a code</h2><p class="small muted">Paste the join code from your partner\'s Nestegg (⚙️ Settings → Sync → Share join code). This device\'s entries are kept and added to the household.</p>' +
+  return '<h2>🔗 Join with a code</h2><p class="small muted">Paste the join code from your partner\'s Nestegg (⚙️ Settings → Sync → Share join code). This device\'s entries are kept and added to the household — even if it was set up separately.</p>' +
     '<label class="field"><textarea class="input" id="f-join" rows="3" placeholder="NEST1:…"></textarea></label><button class="btn primary block" data-act="joinCodeSheetGo">Join</button>';
 };
 ACTIONS.joinCodeSheetGo = function(){ var v = $('#f-join').value; closeSheet(); var p = joinWithCode(v); if (p) p.then(function(){ if (!device.syncError) toast('Joined ✓ — syncing automatically'); }); };
