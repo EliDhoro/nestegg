@@ -169,6 +169,16 @@ textarea.input{min-height:80px;resize:vertical}
 .cat{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;border-radius:14px;background:var(--surface);border:2px solid transparent;font-size:11.5px;font-weight:600;color:var(--ink-2);text-align:center;line-height:1.15}
 .cat .e{font-size:22px}
 .cat.on{border-color:var(--brand);color:var(--ink);background:var(--brand-soft)}
+/* group squares in the add sheet: tinted per group (inline hsla), emoji on top */
+.gtiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+@media(min-width:480px){.gtiles{grid-template-columns:repeat(4,1fr)}}
+@media(min-width:820px){.gtiles{grid-template-columns:repeat(5,1fr)}}
+.gtile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:86px;padding:8px 4px;border-radius:18px;background:var(--surface);
+  border:2px solid transparent;color:var(--ink);font-size:12.5px;font-weight:650;line-height:1.15;text-align:center;transition:transform .08s}
+.gtile:active{transform:scale(.96)}
+.gtile .e{font-size:30px;line-height:1}
+.gtile .s{font-size:10.5px;font-weight:700;color:var(--brand);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtile.on{border-color:var(--brand)}
 .chips{display:flex;gap:8px;flex-wrap:wrap}
 .chip{padding:8px 12px;border-radius:99px;background:var(--surface);border:1.5px solid var(--line);font-size:14px;font-weight:600}
 .chip.on{border-color:var(--brand);background:var(--brand-soft);color:var(--brand)}
@@ -260,7 +270,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261026141700' // set by tools/build.py
+  BUILD: '20261026165910' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules'];
@@ -305,33 +315,57 @@ function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 function $(sel, root){ return (root || document).querySelector(sel); }
 function $all(sel, root){ return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
 
-/* ---------- default categories (fixed ids so separate devices merge cleanly) ---------- */
-var DEFAULT_CATEGORIES = [
-  ['c-rent','Rent / Bond','🏠','needs',25],
-  ['c-groceries','Groceries','🛒','needs',16],
-  ['c-transport','Transport & Fuel','⛽','needs',10],
-  ['c-utilities','Electricity & Water','💡','needs',5],
-  ['c-airtime','Airtime & Data','📱','needs',3],
-  ['c-medical','Medical','🩺','needs',3],
-  ['c-insurance','Insurance','🛡️','needs',4],
-  ['c-school','School & Kids','🎒','needs',0],
-  ['c-family','Family support','🤝','needs',4],
-  ['c-giving','Church & Giving','🙏','giving',5],
-  ['c-debt','Debt repayments','💳','debt',0],
-  ['c-fees','Bank fees','🏦','needs',1],
-  ['c-eatingout','Eating out','🍔','wants',3],
-  ['c-entertainment','Entertainment','🎬','wants',2],
-  ['c-clothing','Clothing','👕','wants',2],
-  ['c-personal','Personal care','💈','wants',2],
-  ['c-subs','Subscriptions','📺','wants',1],
-  ['c-shopping','Shopping','🛍️','wants',2],
-  ['c-gifts','Gifts','🎁','wants',1],
-  ['c-cash','Cash withdrawals','💵','other',0],
-  ['c-other','Other','📦','other',0],
-  ['c-reward','Reward Pot treat','🎉','reward',0]
+/* ---------- budget groups and the categories inside them (fixed ids so separate devices merge cleanly) ---------- */
+// Modelled on the household's old Excel sheet: a heading (Groceries) with lines under it (Starches, Oils, Meat…).
+// hue tints the group's square in the add sheet. Households can rename, reorder and add their own (household.groups).
+var CATEGORY_GROUPS = [
+  {id:'g-home', name:'Home', emoji:'🏠', hue:28},
+  {id:'g-groceries', name:'Groceries', emoji:'🛒', hue:110},
+  {id:'g-car', name:'Motor vehicle', emoji:'🚗', hue:210},
+  {id:'g-transport', name:'Getting around', emoji:'🚌', hue:185},
+  {id:'g-faith', name:'Faith & giving', emoji:'🙏', hue:268},
+  {id:'g-family', name:'Family support', emoji:'🤝', hue:330},
+  {id:'g-kids', name:'School & studies', emoji:'🎓', hue:48},
+  {id:'g-health', name:'Health', emoji:'🩺', hue:355},
+  {id:'g-cover', name:'Insurance & cover', emoji:'🛡️', hue:228},
+  {id:'g-debt', name:'Debt repayments', emoji:'💳', hue:14},
+  {id:'g-personal', name:'Personal', emoji:'💇', hue:300},
+  {id:'g-fun', name:'Lifestyle', emoji:'🎉', hue:150},
+  {id:'g-business', name:'Side business', emoji:'💼', hue:38},
+  {id:'g-admin', name:'Bank & cash', emoji:'🏦', hue:200},
+  {id:'other', name:'Other', emoji:'📦'}
 ];
-// Budget headings. Households can rename, reorder and add their own (household.groups); 'other' and 'reward' always exist.
-var DEFAULT_GROUPS = [{id:'needs', name:'Needs'}, {id:'giving', name:'Giving'}, {id:'debt', name:'Debt'}, {id:'wants', name:'Wants'}, {id:'other', name:'Other'}];
+// [id, name, emoji, group, % of income for the starter budget, true = a "% of income" line (tithe)]
+var DEFAULT_CATEGORIES = [
+  ['c-rent','Rent / Bond','🏠','g-home',22], ['c-utilities','Electricity & water','💡','g-home',4], ['c-airtime','Wi-Fi, data & airtime','📶','g-home',2],
+  ['c-homecare','Home repairs & items','🛠️','g-home',1], ['c-domestic','Domestic help','🧹','g-home',0],
+  ['c-groceries','Mixed groceries','🛒','g-groceries',0], ['c-starch','Starches','🍞','g-groceries',2], ['c-meat','Meat & fish','🍗','g-groceries',4],
+  ['c-veg','Fruit & veg','🥬','g-groceries',2], ['c-dairy','Dairy & eggs','🥛','g-groceries',1], ['c-oils','Oils & spices','🫒','g-groceries',1],
+  ['c-drinks','Drinks & snacks','🧃','g-groceries',1], ['c-toiletries','Toiletries','🧼','g-groceries',1.5], ['c-cleaning','Cleaning & kitchen','🧽','g-groceries',1],
+  ['c-fuel','Petrol','⛽','g-car',5], ['c-carins','Car insurance','🛡️','g-car',2], ['c-carservice','Service & repairs','🔧','g-car',1],
+  ['c-carlicence','Licence & fines','🪪','g-car',0.5], ['c-parking','Parking, tolls & wash','🅿️','g-car',0.5], ['c-carpay','Car instalment','🚙','g-car',0],
+  ['c-transport','Taxi & bus','🚌','g-transport',2], ['c-ride','Uber & Bolt','🚕','g-transport',0.5],
+  ['c-tithe','Tithe','🙏','g-faith',10,true], ['c-giving','Offering','🕊️','g-faith',1], ['c-church','Church projects','⛪','g-faith',1], ['c-charity','Charity','🤲','g-faith',0],
+  ['c-family','Parents & family','👵','g-family',2], ['c-familyhome','Family back home','🌍','g-family',2], ['c-familyevents','Funerals & family events','🕯️','g-family',0],
+  ['c-school','School fees','🎓','g-kids',0], ['c-studies','Studies & courses','📚','g-kids',0], ['c-uniform','Uniforms & stationery','✏️','g-kids',0], ['c-childcare','Childcare','🧸','g-kids',0],
+  ['c-medaid','Medical aid','🏥','g-health',3], ['c-medical','Doctor & medicine','💊','g-health',1],
+  ['c-insurance','Life & funeral cover','🛡️','g-cover',2], ['c-homeins','Home & contents cover','🏡','g-cover',0.5],
+  ['c-debt','Loans & credit cards','💳','g-debt',0], ['c-storeacc','Store accounts','🧾','g-debt',0], ['c-owed','Money owed to people','🤝','g-debt',0],
+  ['c-personal','Hair & beauty','💇','g-personal',1], ['c-clothing','Clothing & shoes','👕','g-personal',1.5], ['c-allow-m1','%m1% spending','👔','g-personal',1], ['c-allow-m2','%m2% spending','👛','g-personal',1],
+  ['c-eatingout','Eating out & takeaways','🍔','g-fun',2], ['c-entertainment','Outings & fun','🎬','g-fun',1], ['c-subs','Subscriptions','📺','g-fun',1],
+  ['c-gifts','Gifts & celebrations','🎁','g-fun',1], ['c-holiday','Holidays & travel','✈️','g-fun',0], ['c-shopping','Shopping','🛍️','g-fun',0.5],
+  ['c-bizstock','Stock & supplies','📦','g-business',0], ['c-bizadmin','Business admin','🗂️','g-business',0],
+  ['c-fees','Bank fees','🏦','g-admin',1], ['c-cash','Cash withdrawals','💵','g-admin',0],
+  ['c-other','Other','📦','other',0], ['c-reward','Reward Pot treat','🎉','reward',0]
+];
+// Households from before the two-level list (catVersion < 2) keep these until migrateCategories() moves them over
+var LEGACY_GROUPS = [{id:'needs', name:'Needs'}, {id:'giving', name:'Giving'}, {id:'debt', name:'Debt'}, {id:'wants', name:'Wants'}, {id:'other', name:'Other'}];
+var LEGACY_NAMES = {'c-rent':'Rent / Bond','c-groceries':'Groceries','c-transport':'Transport & Fuel','c-utilities':'Electricity & Water','c-airtime':'Airtime & Data',
+  'c-medical':'Medical','c-insurance':'Insurance','c-school':'School & Kids','c-family':'Family support','c-giving':'Church & Giving','c-debt':'Debt repayments',
+  'c-fees':'Bank fees','c-eatingout':'Eating out','c-entertainment':'Entertainment','c-clothing':'Clothing','c-personal':'Personal care','c-subs':'Subscriptions',
+  'c-shopping':'Shopping','c-gifts':'Gifts','c-cash':'Cash withdrawals','c-other':'Other'};
+function defaultCatName(name){ return name.replace('%m1%', (member('m1') || {name:'Me'}).name).replace('%m2%', (member('m2') || {name:'Partner'}).name); }
+function baseGroups(h){ return (h && h.groups) || LEGACY_GROUPS; }
 
 function blankState(){
   return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[]};
@@ -404,7 +438,7 @@ function partner(){ var m = members(); for (var i=0;i<m.length;i++) if (m[i].id 
 function initial(name){ return (name || '?').trim().charAt(0).toUpperCase(); }
 function cat(id){ return byId('categories', id) || {id:'c-other', name:'Other', emoji:'📦', group:'other', budget:0}; }
 function groupsList(){
-  var gs = (state.household && state.household.groups) || DEFAULT_GROUPS;
+  var gs = baseGroups(state.household);
   return gs.concat([{id:'reward', name:'Rewards'}]);
 }
 function catGroup(c){
@@ -435,6 +469,53 @@ function setIncomeLines(lines){
   setHousehold(h);
 }
 
+// Moves a household from the old flat list to groups with categories inside (catVersion 2). Keeps every entry, budget,
+// learned rule and anything the household made itself; adds the new categories it doesn't already have (matched by
+// name too, so a hand-made "Tithe" isn't doubled). Gives the same result on every device, so syncing can't duplicate.
+var FUEL_WORDS = ['engen','shell',' bp ','sasol','totalenergies','total energies','caltex','astron','puma energy','fuel','petrol'];
+var LEGACY_GROUP_TO = {giving:'g-faith', debt:'g-debt', wants:'g-fun', needs:'other'};
+function migrateCategories(){
+  var h0 = state.household;
+  if (!h0 || h0.catVersion >= 2) return false;
+  var h = JSON.parse(JSON.stringify(h0)), t = now();
+  function norm(s){ return String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim(); }
+  // groups: the new set, then the household's own; an own group that's clearly one of ours ("Faith") is folded into it
+  var groups = CATEGORY_GROUPS.filter(function(g){ return g.id !== 'other'; }).map(function(g){ return Object.assign({}, g); }), regroup = {};
+  (h.groups || []).forEach(function(g){
+    if (LEGACY_GROUP_TO[g.id] || g.id === 'other') return;
+    var same = groups.filter(function(x){ var a = norm(x.name), b = norm(g.name); return b && (a === b || a.indexOf(b) === 0 || b.indexOf(a) === 0); })[0];
+    if (same) regroup[g.id] = same.id; else groups.push(g);
+  });
+  groups.push(CATEGORY_GROUPS[CATEGORY_GROUPS.length - 1]);
+  h.groups = groups; h.catVersion = 2; setHousehold(h);
+  var names = {};
+  live('categories').forEach(function(c){ names[norm(c.name)] = true; });
+  DEFAULT_CATEGORIES.forEach(function(d, i){
+    var c = byId('categories', d[0]);
+    if (c) {
+      var n = Object.assign({}, c);
+      if (n.group !== 'reward') n.group = d[3];
+      if (LEGACY_NAMES[d[0]] && n.name === LEGACY_NAMES[d[0]]) { n.name = defaultCatName(d[1]); n.emoji = d[2]; } // untouched default: new name and emoji
+      n.order = i; n.updatedAt = t; state.categories = state.categories.map(function(x){ return x.id === n.id ? n : x; });
+    } else if (!names[norm(defaultCatName(d[1]))]) {
+      state.categories.push({id:d[0], name:defaultCatName(d[1]), emoji:d[2], group:d[3], budget:0, order:i, updatedAt:t});
+    }
+  });
+  // the household's own categories: into the group they were folded into, or the nearest new one
+  state.categories = state.categories.map(function(c){
+    var to = regroup[c.group] || LEGACY_GROUP_TO[c.group];
+    if (!to || c.deleted) return c;
+    var n = Object.assign({}, c); n.group = to; n.updatedAt = t; return n;
+  });
+  // the old "Transport & Fuel" is now Taxi & bus: fuel-station spending moves to Petrol
+  state.tx = state.tx.map(function(x){
+    if (x.categoryId !== 'c-transport' || x.deleted) return x;
+    var d = ' ' + String((x.raw || '') + ' ' + (x.note || '')).toLowerCase() + ' ';
+    if (!FUEL_WORDS.some(function(w){ return d.indexOf(w) >= 0; })) return x;
+    var n = Object.assign({}, x); n.categoryId = 'c-fuel'; n.updatedAt = t; return n;
+  });
+  return true;
+}
 function createHousehold(opts){
   var h = {
     id: 'h-' + uid(), name: opts.householdName || 'Our household',
@@ -445,13 +526,14 @@ function createHousehold(opts){
       .filter(function(l){ return l.amount > 0; }),
     savingsTarget: 0,
     rewardPct: {Bronze:10, Silver:20, Gold:25, Diamond:30},
+    groups: CATEGORY_GROUPS.map(function(g){ return Object.assign({}, g); }), catVersion: 2,
     createdOn: todayStr()
   };
   setHousehold(h);
   var totalIncome = (+opts.income1||0) + (+opts.income2||0);
   DEFAULT_CATEGORIES.forEach(function(d, i){
     var b = opts.quickBudget && totalIncome ? Math.round(totalIncome * d[4] / 100 / 50) * 50 : 0;
-    if (!byId('categories', d[0])) upsert('categories', {id:d[0], name:d[1], emoji:d[2], group:d[3], budget:b, order:i});
+    if (!byId('categories', d[0])) upsert('categories', {id:d[0], name:defaultCatName(d[1]), emoji:d[2], group:d[3], budget:b, pct:d[5] && opts.quickBudget ? d[4] : 0, order:i});
   });
   if (opts.quickBudget && totalIncome) h.savingsTarget = Math.round(totalIncome * 0.1 / 50) * 50;
   device.memberId = opts.whoAmI || 'm1';
@@ -1157,18 +1239,26 @@ function viewBudget(){
     var cs = byGroup[g.id];
     if (!cs || g.id === 'reward') return;
     var gs = sum(cs, function(c){ return s.byCat[c.id]; }), gb = sum(cs, function(c){ return s.budgets[c.id]; });
-    html += '<div class="card"><div class="row between"><h2>' + esc(g.name) + '</h2><span class="small ' + (gb - gs < 0 ? 'neg' : 'muted') + '">' + fmtR(gs) + ' / ' + fmtR(gb) +
-      (gb ? ' · ' + (gb - gs >= 0 ? fmtR(gb - gs) + ' left' : fmtR(gs - gb) + ' over') : '') + '</span></div>' +
-      cs.map(function(c){
+    // groups with money in them start open, empty ones closed; your own opening/closing is remembered on this device
+    var open = (device.groupOpen || {})[g.id] != null ? device.groupOpen[g.id] : (gb > 0 || gs > 0);
+    html += '<div class="card"><div class="tap" data-act="toggleGroup" data-id="' + esc(g.id) + '" style="cursor:pointer"><div class="row between"><h2 style="margin:0">' + esc((g.emoji ? g.emoji + ' ' : '') + g.name) +
+      ' <span class="muted small">' + (open ? '▾' : '▸ ' + cs.length) + '</span></h2><span class="small ' + (gb - gs < 0 ? 'neg' : 'muted') + '">' + fmtR(gs) + ' / ' + fmtR(gb) +
+      (gb ? ' · ' + (gb - gs >= 0 ? fmtR(gb - gs) + ' left' : fmtR(gs - gb) + ' over') : '') + '</span></div><div style="margin-top:8px">' + bar(gs, gb) + '</div></div>' +
+      (!open ? '' : '<div style="margin-top:6px">' + cs.map(function(c){
         var sp = s.byCat[c.id] || 0, b = s.budgets[c.id] || 0, left = b - sp, pl = catPlan(c, periodKeyFor(p));
         return '<div class="tap" data-act="editCat" data-id="' + c.id + '" style="padding:9px 0;cursor:pointer"><div class="row between"><span class="strong">' + c.emoji + ' ' + esc(c.name) +
           (pl.pct ? ' <span class="pill">' + pl.pct + '%</span>' : '') + '</span><span class="small ' + (left < 0 ? 'neg' : 'muted') + '">' +
           fmtR(sp) + ' / ' + (b ? fmtR(b) : '<i>no budget</i>') + '</span></div><div style="margin-top:6px">' + bar(sp, b) + '</div></div>';
-      }).join('') + '</div>';
+      }).join('') + '<button class="btn ghost sm" data-act="addCatIn" data-id="' + esc(g.id) + '">+ Add a line to ' + esc(g.name) + '</button></div>') + '</div>';
   });
   html += '</div>';
   return html;
 }
+ACTIONS.toggleGroup = function(el){
+  var id = el.getAttribute('data-id'), card = el.parentNode, isOpen = !!card.querySelector('[data-act=editCat]');
+  device.groupOpen = Object.assign({}, device.groupOpen || {}); device.groupOpen[id] = !isOpen; saveDevice(); render(true);
+};
+ACTIONS.addCatIn = function(el){ openSheet('cat', {id:null, group:el.getAttribute('data-id')}); };
 ACTIONS.editCarry = function(){ openSheet('carry', {key: periodKeyFor(ui.period || currentPeriod())}); };
 SHEETS.carry = function(sh){
   var start = keyStart(sh.key), prev = prevPeriodStart(start), lo = monthLeftover(prev), adj = (state.household.carryAdjust || {})[sh.key];
@@ -1212,7 +1302,7 @@ SHEETS.cat = function(sh){
   var p = ui.period || currentPeriod(), s = periodSummary(p), k = periodKeyFor(p);
   var pl = c ? catPlan(c, k) : {amount:0}, isPct = (+pl.pct || 0) > 0;
   var txs = c ? sortTx(s.txs.filter(function(t){ return t.type === 'expense' && t.categoryId === c.id; })) : [];
-  var cg = c ? catGroup(c) : 'wants';
+  var cg = c ? catGroup(c) : (sh.group || (groupsList()[0] || {}).id || 'other');
   return '<h2>' + (c ? c.emoji + ' ' + esc(c.name) : 'New category') + '</h2>' +
     '<div class="row"><label class="field" style="width:90px"><span>Emoji</span><input class="input center" id="f-ce" maxlength="4" value="' + esc(c ? c.emoji : '🏷️') + '"></label>' +
     '<label class="field" style="flex:1"><span>Name</span><input class="input" id="f-cn" value="' + esc(c ? c.name : '') + '" placeholder="e.g. Petrol"></label></div>' +
@@ -1220,7 +1310,7 @@ SHEETS.cat = function(sh){
     '<label class="field" style="width:130px"><span>As</span><select class="input" id="f-cm" data-change="catMode"><option value="amount"' + (isPct ? '' : ' selected') + '>Rand</option><option value="pct"' + (isPct ? ' selected' : '') + '>% of income</option></select></label></div>' +
     '<p class="small muted" id="f-cm-note">' + catModeNote(isPct, p) + '</p>' +
     (c && c.group === 'reward' ? '' : '<label class="field"><span>Group</span><select class="input" id="f-cg" data-change="catGroupPick">' +
-      groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return '<option value="' + g.id + '"' + (cg === g.id ? ' selected' : '') + '>' + esc(g.name) + '</option>'; }).join('') +
+      groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return '<option value="' + g.id + '"' + (cg === g.id ? ' selected' : '') + '>' + esc((g.emoji ? g.emoji + ' ' : '') + g.name) + '</option>'; }).join('') +
       '<option value="__new">➕ New group…</option></select></label>' +
       '<label class="field" id="f-cgn-wrap" style="display:none"><span>New group name</span><input class="input" id="f-cgn" placeholder="e.g. Black tax"></label>') +
     '<div class="btns"><button class="btn primary" data-act="saveCat">Save</button>' + (c && c.id !== 'c-other' && c.id !== 'c-reward' ? '<button class="btn danger" data-act="deleteCat">Delete</button>' : '') + '</div>' +
@@ -1244,7 +1334,7 @@ ACTIONS.saveCat = function(){
     if ($('#f-cg').value === '__new') {
       var gn = $('#f-cgn').value.trim(); if (!gn) { toast('Name the new group'); return; }
       var h = JSON.parse(JSON.stringify(state.household)), ng = {id:'grp-' + uid(), name:gn};
-      h.groups = (h.groups || DEFAULT_GROUPS).concat([ng]); setHousehold(h); c.group = ng.id;
+      h.groups = baseGroups(h).concat([ng]); setHousehold(h); c.group = ng.id;
     } else c.group = $('#f-cg').value;
   } else c.group = c.group || 'reward';
   var k = periodKeyFor(ui.period || currentPeriod()), plan = isPct ? {pct:v} : {amount:v};
@@ -1254,13 +1344,14 @@ ACTIONS.saveCat = function(){
 
 /* ---------- groups ---------- */
 ACTIONS.editGroups = function(){
-  openSheet('groups', {draft: groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return {id:g.id, name:g.name}; })});
+  openSheet('groups', {draft: groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return Object.assign({}, g); })});
 };
 SHEETS.groups = function(sh){
   var n = sh.draft.length;
   return '<h2>🗂️ Groups</h2><p class="small muted">The headings your budget is organised under — rename them, put them in your order, or add your own like Faith, Black tax or School fees.</p>' +
     sh.draft.map(function(g, i){
-      return '<div class="row" style="gap:6px;margin-bottom:8px"><input class="input" style="flex:1" data-input="grpName" data-i="' + i + '" value="' + esc(g.name) + '" placeholder="Group name">' +
+      return '<div class="row" style="gap:6px;margin-bottom:8px"><input class="input center" style="width:52px;padding:0" maxlength="4" data-input="grpEmoji" data-i="' + i + '" value="' + esc(g.emoji || '🗂️') + '" aria-label="Emoji">' +
+        '<input class="input" style="flex:1;min-width:0" data-input="grpName" data-i="' + i + '" value="' + esc(g.name) + '" placeholder="Group name">' +
         '<button class="btn sm" data-act="grpMove" data-i="' + i + '" data-d="-1"' + (i === 0 ? ' disabled' : '') + ' aria-label="Move up">↑</button>' +
         '<button class="btn sm" data-act="grpMove" data-i="' + i + '" data-d="1"' + (i === n - 1 ? ' disabled' : '') + ' aria-label="Move down">↓</button>' +
         (g.id === 'other' ? '<button class="btn sm" style="visibility:hidden" aria-hidden="true" tabindex="-1">✕</button>' : '<button class="btn sm danger" data-act="grpDel" data-i="' + i + '" aria-label="Delete">✕</button>') + '</div>';
@@ -1268,6 +1359,7 @@ SHEETS.groups = function(sh){
     '<button class="btn block" data-act="grpAdd">+ Add a group</button><button class="btn primary block mt" data-act="saveGroups">Save</button>';
 };
 INPUTS.grpName = function(el){ ui.sheet.draft[+el.getAttribute('data-i')].name = el.value; };
+INPUTS.grpEmoji = function(el){ ui.sheet.draft[+el.getAttribute('data-i')].emoji = el.value.trim(); };
 ACTIONS.grpMove = function(el){
   var d = ui.sheet.draft, i = +el.getAttribute('data-i'), j = i + (+el.getAttribute('data-d'));
   if (j < 0 || j >= d.length) return;
@@ -1280,11 +1372,11 @@ ACTIONS.grpDel = function(el){
   d.splice(+el.getAttribute('data-i'), 1); renderSheet();
 };
 ACTIONS.grpAdd = function(){
-  ui.sheet.draft.push({id:'grp-' + uid(), name:''}); renderSheet();
+  ui.sheet.draft.push({id:'grp-' + uid(), name:'', emoji:'🗂️'}); renderSheet();
   var ins = $all('[data-input=grpName]'); if (ins.length) ins[ins.length - 1].focus();
 };
 ACTIONS.saveGroups = function(){
-  var d = ui.sheet.draft.map(function(g){ return {id:g.id, name:g.name.trim()}; });
+  var d = ui.sheet.draft.map(function(g){ var o = Object.assign({}, g); o.name = (g.name || '').trim(); o.emoji = g.emoji || '🗂️'; return o; });
   if (d.some(function(g){ return !g.name; })) { toast('Give every group a name'); return; }
   var h = JSON.parse(JSON.stringify(state.household)); h.groups = d; setHousehold(h);
   // categories whose group was deleted go to Other
@@ -1612,15 +1704,14 @@ SHEETS.add = function(sh){
   if (sh.txType === 'expense') html += '<div class="chips" style="justify-content:center;margin-bottom:10px">' +
     '<button class="chip ' + (sh.refund ? 'on' : '') + '" data-act="addRefund">↩️ It\'s a refund</button><button class="chip ' + (sh.split ? 'on' : '') + '" data-act="addSplit">✂️ Split across lines</button></div>';
   if (sh.txType === 'expense' || sh.txType === 'skip') {
-    var cats = liveCats().filter(function(c){ return sh.txType === 'expense' ? (c.group !== 'reward' || sh.categoryId === 'c-reward' || potBalance().balance > 0) : c.group !== 'reward'; });
+    var cats = addCats(sh);
     if (sh.txType === 'expense' && sh.split) {
       html += '<div class="split">' + sh.split.map(function(r, i){
-        return '<div class="row" style="gap:6px;margin-bottom:6px"><select class="input" style="flex:1;min-width:0" data-change="splitCat" data-i="' + i + '"><option value="">Pick a line…</option>' +
-          cats.map(function(c){ return '<option value="' + c.id + '"' + (r.categoryId === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</select>' +
+        return '<div class="row" style="gap:6px;margin-bottom:6px"><select class="input" style="flex:1;min-width:0" data-change="splitCat" data-i="' + i + '">' + catOptionsHtml(cats, r.categoryId, 'Pick a line…') + '</select>' +
           '<input class="input" style="width:100px;text-align:right" inputmode="decimal" data-input="splitAmt" data-i="' + i + '" value="' + esc(r.amount) + '" placeholder="the rest">' +
           '<button class="btn sm" data-act="splitDel" data-i="' + i + '"' + (sh.split.length <= 2 ? ' disabled' : '') + ' aria-label="Remove line">✕</button></div>';
       }).join('') + '<div class="row between small" style="margin-bottom:8px"><button class="btn sm" data-act="splitAdd">+ Add line</button><span id="split-left" class="muted">' + splitStatus(sh) + '</span></div></div>';
-    } else html += '<div class="cats">' + cats.map(function(c){ return '<button class="cat ' + (sh.categoryId === c.id ? 'on' : '') + '" data-act="addCat" data-id="' + c.id + '"><span class="e">' + c.emoji + '</span>' + esc(c.name) + '</button>'; }).join('') + '</div>';
+    } else html += catPicker(sh, cats);
   }
   if (sh.txType === 'expense' || sh.txType === 'income') html += '<div class="row small" style="gap:8px;margin:4px 0 8px;flex-wrap:wrap"><span class="muted">' + (sh.txType === 'income' ? 'Came in as' : 'Paid with') + '</span>' +
     METHODS.map(function(m){ return '<button class="chip ' + (sh.method === m[0] ? 'on' : '') + '" data-act="addMethod" data-id="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>';
@@ -1638,6 +1729,57 @@ SHEETS.add = function(sh){
   if (orig && orig.raw) html += '<p class="tiny muted mt">Bank description: <span class="code">' + esc(orig.raw) + '</span></p>';
   return html;
 };
+/* ---------- two-step category picker: a group's square, then the line inside it ---------- */
+function addCats(sh){
+  return liveCats().filter(function(c){ return sh.txType === 'expense' ? (c.group !== 'reward' || sh.categoryId === 'c-reward' || potBalance().balance > 0) : c.group !== 'reward'; });
+}
+function groupHue(g){
+  if (g.hue != null) return g.hue;
+  var h = 0; for (var i = 0; i < g.id.length; i++) h = (h * 31 + g.id.charCodeAt(i)) % 360; return h;
+}
+function tileTint(g){ return g.id === 'other' ? '' : 'background:hsla(' + groupHue(g) + ',75%,55%,.17)'; }
+function pickerGroups(cats){
+  return groupsList().map(function(g){ return {g:g, cs:cats.filter(function(c){ return catGroup(c) === g.id; })}; }).filter(function(x){ return x.cs.length; });
+}
+// the lines most recently used, for a one-tap pick
+function recentCats(cats){
+  var ok = {}, seen = {}, out = [];
+  cats.forEach(function(c){ ok[c.id] = c; });
+  live('tx').filter(function(t){ return t.type === 'expense' && t.source !== 'import' && ok[t.categoryId] && t.categoryId !== 'c-other'; })
+    .sort(function(a, b){ return (b.createdAt || 0) - (a.createdAt || 0); })
+    .forEach(function(t){ if (!seen[t.categoryId] && out.length < 4) { seen[t.categoryId] = 1; out.push(ok[t.categoryId]); } });
+  return out;
+}
+function catTile(c, sel){ return '<button class="cat ' + (sel === c.id ? 'on' : '') + '" data-act="addCat" data-id="' + c.id + '"><span class="e">' + c.emoji + '</span>' + esc(c.name) + '</button>'; }
+function catPicker(sh, cats){
+  var groups = pickerGroups(cats), sel = sh.categoryId && byId('categories', sh.categoryId), open = null, html = '';
+  groups.forEach(function(x){ if (x.g.id === sh.openGroup) open = x; });
+  if (open) {
+    return html + '<div class="row" style="gap:10px;margin-bottom:8px"><button class="chip" data-act="addGroup" data-id="">‹ All groups</button><b>' + esc((open.g.emoji || '🗂️') + ' ' + open.g.name) + '</b></div>' +
+      '<div class="cats">' + open.cs.map(function(c){ return catTile(c, sh.categoryId); }).join('') + '</div>';
+  }
+  var rec = recentCats(cats);
+  if (rec.length) html += '<div class="tiny muted strong" style="margin:0 0 6px">RECENT</div><div class="cats" style="margin-bottom:12px">' + rec.map(function(c){ return catTile(c, sh.categoryId); }).join('') + '</div>';
+  return html + '<div class="gtiles">' + groups.map(function(x){
+    var has = sel && catGroup(sel) === x.g.id;
+    return '<button class="gtile' + (has ? ' on' : '') + '" data-act="addGroup" data-id="' + esc(x.g.id) + '" data-cats="' + x.cs.map(function(c){ return c.id; }).join(' ') + '" style="' + tileTint(x.g) + '">' +
+      '<span class="e">' + esc(x.g.emoji || '🗂️') + '</span><span class="n">' + esc(x.g.name) + '</span>' + (has ? '<span class="s">✓ ' + esc(sel.name) + '</span>' : '') + '</button>';
+  }).join('') + '</div>';
+}
+ACTIONS.addGroup = function(el){
+  var sh = ui.sheet, id = el.getAttribute('data-id') || null, x = null;
+  pickerGroups(addCats(sh)).forEach(function(g){ if (g.g.id === id) x = g; });
+  if (x && x.cs.length === 1) { sh.categoryId = x.cs[0].id; sh.openGroup = null; } // nothing to choose between
+  else sh.openGroup = id;
+  renderSheet(); buzz(6);
+};
+// <select> options grouped under their headings (split lines, statement import)
+function catOptionsHtml(cats, selected, placeholder){
+  return (placeholder ? '<option value="">' + esc(placeholder) + '</option>' : '') + pickerGroups(cats).map(function(x){
+    return '<optgroup label="' + esc((x.g.emoji ? x.g.emoji + ' ' : '') + x.g.name) + '">' + x.cs.map(function(c){
+      return '<option value="' + c.id + '"' + (selected === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</optgroup>';
+  }).join('');
+}
 ACTIONS.addSetType = function(el){ ui.sheet.txType = el.getAttribute('data-id'); renderSheet(); };
 ACTIONS.addRefund = function(){ ui.sheet.refund = !ui.sheet.refund; renderSheet(); };
 ACTIONS.addMethod = function(el){ var m = el.getAttribute('data-id'); ui.sheet.method = ui.sheet.method === m ? null : m; renderSheet(); };
@@ -1983,16 +2125,25 @@ var PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.w
 var KEYWORDS = [
   ['c-eatingout', ['uber eats','ubereats','mr d','mrd food','mr delivery','kfc','mcdonald','mcd ','nando','steers','debonairs','wimpy','spur ','rocomamas','burger king','chicken licken','romans pizza','roman\'s pizza','pizza','mugg','vida e','starbucks','ocean basket','fishaways','galito','hungry lion','king pie','pie city','restaurant','bistro','cafe','coffee','tasha','col\'cacchio','panarottis','doppio','seattle coffee','krispy kreme','dominos','domino\'s','simply asia','sushi']],
   ['c-groceries', ['checkers','shoprite','pick n pay','picknpay','pick \'n pay','pnp ','woolworths','woolies','spar','food lover','foodlovers','boxer','usave','u save','ok foods','ok minimark','cambridge food','fruit & veg','fruit and veg','butchery','bakery','sixty60','checkers60','pnp asap','makro food','food']],
-  ['c-transport', ['engen','shell',' bp ','sasol','totalenergies','total energies','caltex','astron','puma energy','fuel','petrol','garage','uber','bolt','didi','gautrain','taxi','etoll','e-toll','sanral','tollgate','toll plaza','parking','autozone','midas','tyre','car wash','putco','metrorail','rea vaya','a re yeng','greyhound','intercape','flysafair','airlink','lift airline','kulula']],
+  ['c-fuel', ['engen','shell',' bp ','sasol','totalenergies','total energies','caltex','astron','puma energy','fuel','petrol','garage']],
+  ['c-parking', ['etoll','e-toll','sanral','tollgate','toll plaza','parking','car wash']],
+  ['c-carservice', ['autozone','midas','tyre','tiger wheel','supa quick','hi-q','bosch car','mechanic','panel beat','auto parts','goldwagen']],
+  ['c-carlicence', ['licence renewal','license renewal','vehicle licence','vehicle license','traffic fine','aarto','licensing dept']],
+  ['c-ride', ['uber','bolt','didi','indrive']],
+  ['c-transport', ['gautrain','taxi','putco','metrorail','rea vaya','a re yeng','myciti','golden arrow','bus fare']],
+  ['c-holiday', ['greyhound','intercape','flysafair','airlink','lift airline','kulula','booking.com','airbnb','travelstart','safari']],
   ['c-airtime', ['vodacom','mtn','cell c','cellc','telkom','rain ','afrihost','webafrica','vox ','airtime','data bundle','databundle','prepaid air','fnb connect','openserve','fibre']],
   ['c-utilities', ['prepaid elec','electricity','city power','eskom','municipal','city of johannesburg','city of joburg','coj ','joburg water','johannesburg water','rand water','ekurhuleni','tshwane','city of cape town','ethekwini','rates','water & lights','water and lights']],
   ['c-subs', ['netflix','showmax','dstv','multichoice','spotify','youtube','apple.com','itunes','google play','google one','disney','prime video','amazon prime','icloud','microsoft','office 365','chatgpt','openai','canva','deezer','apple music','tv licence','tv license']],
+  ['c-medaid', ['discovery health','bonitas','momentum health','medshield','gems ','fedhealth','bestmed','keyhealth','medihelp','medical aid']],
   ['c-medical', ['dis-chem','dischem','pharmacy','pharm','chemist','doctor','dr ','hospital','netcare','mediclinic','life health','lifehealth','medical','clinic','pathcare','lancet','ampath','dentist','dental','optom','spec-savers','specsavers','physio']],
   ['c-personal', ['clicks','salon','barber','hair','beauty','spa ','nail','cosmetic','perfume','sorbet']],
+  ['c-carins', ['outsurance','santam','miway','king price','discovery insure','budget ins','dial direct','first for women','auto & general','naked insurance','pineapple']],
   ['c-insurance', ['insurance','assurance','insure','old mutual','sanlam','liberty','outsurance','santam','hollard','miway','king price','discovery life','discovery insure','momentum','metropolitan','funeral','avbob','clientele','1life','assupol','budget ins','dial direct','first for women','auto & general']],
   ['c-rent', [' rent',' rental','bond','home loan','homeloan','levy','levies','body corp','bodycorp','landlord','property man']],
   ['c-debt', ['loan','credit card','card repay','repayment','store card','rcs','lewis','onecard','fnb card payment','vehicle finance','wesbank','mfc ','absa vaf','instalment','installment','debt']],
-  ['c-family', ['mukuru','mama money','hello paisa','hellopaisa','money transfer','send money','sendmoney','cash send','cashsend','ewallet','e-wallet','instant money']],
+  ['c-familyhome', ['mukuru','mama money','hello paisa','hellopaisa','money transfer','send money','sendmoney','cash send','cashsend','ewallet','e-wallet','instant money']],
+  ['c-tithe', ['tithe']],
   ['c-giving', ['church','tithe','offering','donation','afm ',' mission','ministr','zcc','apostolic','assembly','charity','foundation']],
   ['c-school', ['school','creche','daycare','day care','university','unisa','college','tuition','varsity','stationery','uniform','academy','educat']],
   ['c-clothing', ['mr price','mrp ','pep ','pepstores','ackermans','truworths','edgars','foschini','tfg','jet ','markham','sportscene','totalsports','h&m','zara','cotton on','legit','identity','exact ','skipper','superbalist','bash.com','shoe','studio 88','side step','relay jeans']],
@@ -2035,7 +2186,7 @@ function classify(desc, amt){
     return {type:'income', categoryId:null, flag:true};
   }
   if (hasAny(d, SAVING_WORDS)) return {type:'saving', categoryId:null, flag:true};
-  for (var k=0;k<KEYWORDS.length;k++) if (hasAny(d, KEYWORDS[k][1])) return {type:'expense', categoryId:KEYWORDS[k][0], flag:false};
+  for (var k=0;k<KEYWORDS.length;k++) if (hasAny(d, KEYWORDS[k][1])) return {type:'expense', categoryId:byId('categories', KEYWORDS[k][0]) ? KEYWORDS[k][0] : 'c-other', flag:!byId('categories', KEYWORDS[k][0])};
   if (hasAny(d, ['transfer','trf'])) return {type:'expense', categoryId:'c-other', flag:true};
   return {type:'expense', categoryId:'c-other', flag:true};
 }
@@ -2277,7 +2428,7 @@ VIEWS['import'] = function(){
       return '<tr class="' + (r.include ? '' : 'off') + (r.flag && r.include ? ' flag' : '') + '"><td><input type="checkbox" data-change="impInc" data-i="' + x.i + '"' + (r.include ? ' checked' : '') + '></td>' +
         '<td class="desc" title="' + esc(r.desc) + '"><div class="strong" style="overflow:hidden;text-overflow:ellipsis">' + esc(prettyMerchant(r.desc)) + '</div><div class="tiny muted">' + fmtDate(r.date) + ' · <span class="' + (r.amount > 0 ? 'pos' : '') + '">' + (r.amount > 0 ? '+' : '−') + fmtR(Math.abs(r.amount), true) + '</span>' + (r.dup ? ' · <span class="pill">already in</span>' : '') + '</div></td>' +
         '<td><select data-change="impType" data-i="' + x.i + '">' + [['expense','Spent'],['refund','Refund'],['income','Income'],['saving','Saved'],['ignore','Transfer']].map(function(t){ return '<option value="' + t[0] + '"' + (r.type === t[0] ? ' selected' : '') + '>' + t[1] + '</option>'; }).join('') + '</select>' +
-        (r.type === 'expense' || r.type === 'refund' ? '<select data-change="impCat" data-i="' + x.i + '" style="margin-top:4px">' + catOpts.map(function(c){ return '<option value="' + c.id + '"' + (r.categoryId === c.id ? ' selected' : '') + '>' + c.emoji + ' ' + esc(c.name) + '</option>'; }).join('') + '</select>' : '') + '</td></tr>';
+        (r.type === 'expense' || r.type === 'refund' ? '<select data-change="impCat" data-i="' + x.i + '" style="margin-top:4px">' + catOptionsHtml(catOpts, r.categoryId) + '</select>' : '') + '</td></tr>';
     }).join('') + '</table></div>' + (shown.length > (imp.limit || 300) ? '<button class="btn block mt" data-act="impMore">Show more (' + (shown.length - (imp.limit || 300)) + ')</button>' : '');
   html += '<div class="btns mt"><button class="btn" data-act="impCancel">Cancel</button><button class="btn primary" data-act="impGo">Import ' + inc.length + ' transaction' + (inc.length===1?'':'s') + '</button></div>';
   return html;
@@ -2514,8 +2665,8 @@ function remoteHousehold(local, remote){
   try { localStorage.setItem(LS_BEFORE_JOIN, JSON.stringify({at:now(), state:local})); } catch(e){}
   // the shared household's settings win, but this device's own groups come along so its categories keep their heading
   var out = JSON.parse(JSON.stringify(local)), h = JSON.parse(JSON.stringify(remote.household));
-  var mine = (local.household.groups || []).filter(function(g){ return !(h.groups || DEFAULT_GROUPS).some(function(x){ return x.id === g.id; }); });
-  if (mine.length) h.groups = (h.groups || DEFAULT_GROUPS).concat(mine);
+  var mine = (local.household.groups || []).filter(function(g){ return !baseGroups(h).some(function(x){ return x.id === g.id; }); });
+  if (mine.length) h.groups = baseGroups(h).concat(mine);
   h.updatedAt = Math.max(+h.updatedAt || 0, +local.household.updatedAt || 0) + 1;
   out.household = h;
   return out;
@@ -2543,7 +2694,7 @@ function relaySync(attempt){
     }
     var local = remoteHousehold(state, remote), merged = remote ? mergeStates(local, remote) : local;
     if (!merged.household) return noHousehold();
-    state = merged; saveState(true);
+    state = merged; migrateCategories(); merged = state; saveState(true);
     var text = canonical(merged);
     if (remote && canonical(remote) === text) { device.relayRev = r.rev; return 'ok'; }
     return Relay.push(r.rev, text).then(function(p){
@@ -2600,7 +2751,7 @@ function driveSync(){
     var local = remoteHousehold(state, remote);
     var merged = remote ? mergeStates(local, remote) : local;
     if (!merged.household) return noHousehold();
-    state = merged; saveState(true);
+    state = merged; migrateCategories(); merged = state; saveState(true);
     var text = canonical(merged);
     var needsUpload = !remote || canonical(remote) !== text;
     var p = !fileId ? Drive.create(text).then(function(id){ device.driveFileId = id; })
@@ -2718,6 +2869,7 @@ function checkRecap(){
 
 function init(){
   loadAll();
+  if (migrateCategories()) saveState(); // one-off move to groups with categories inside; syncs to the other devices
   if (device.autoSync == null) device.autoSync = !IS_IOS;
   var r = Drive.handleRedirect();
   render();
