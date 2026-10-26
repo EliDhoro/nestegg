@@ -270,7 +270,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261026165910' // set by tools/build.py
+  BUILD: '20261026185727' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules'];
@@ -474,41 +474,64 @@ function setIncomeLines(lines){
 // name too, so a hand-made "Tithe" isn't doubled). Gives the same result on every device, so syncing can't duplicate.
 var FUEL_WORDS = ['engen','shell',' bp ','sasol','totalenergies','total energies','caltex','astron','puma energy','fuel','petrol'];
 var LEGACY_GROUP_TO = {giving:'g-faith', debt:'g-debt', wants:'g-fun', needs:'other'};
+// Is anything still on the old flat list? (also catches old groups brought back by joining or by a stale device)
+function oldCategoriesLeft(){
+  var h = state.household; if (!h) return false;
+  if (!(h.catVersion >= 2)) return true;
+  if ((h.groups || []).some(function(g){ return LEGACY_GROUP_TO[g.id]; })) return true;
+  return live('categories').some(function(c){ return LEGACY_GROUP_TO[c.group]; });
+}
+// A time later than anything already saved, so this change wins every merge — even against a device whose clock is ahead
+function stampAfterAll(){
+  var t = now(), h = state.household;
+  if (h && +h.updatedAt >= t) t = +h.updatedAt + 1;
+  ['categories', 'tx'].forEach(function(k){ state[k].forEach(function(x){ if (+x.updatedAt >= t) t = +x.updatedAt + 1; }); });
+  return t;
+}
 function migrateCategories(){
-  var h0 = state.household;
-  if (!h0 || h0.catVersion >= 2) return false;
-  var h = JSON.parse(JSON.stringify(h0)), t = now();
+  if (!oldCategoriesLeft()) return false;
+  var h0 = state.household, full = !(h0.catVersion >= 2);
+  var h = JSON.parse(JSON.stringify(h0)), t = stampAfterAll();
   function norm(s){ return String(s || '').toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim(); }
-  // groups: the new set, then the household's own; an own group that's clearly one of ours ("Faith") is folded into it
-  var groups = CATEGORY_GROUPS.filter(function(g){ return g.id !== 'other'; }).map(function(g){ return Object.assign({}, g); }), regroup = {};
-  (h.groups || []).forEach(function(g){
-    if (LEGACY_GROUP_TO[g.id] || g.id === 'other') return;
-    var same = groups.filter(function(x){ var a = norm(x.name), b = norm(g.name); return b && (a === b || a.indexOf(b) === 0 || b.indexOf(a) === 0); })[0];
-    if (same) regroup[g.id] = same.id; else groups.push(g);
-  });
-  groups.push(CATEGORY_GROUPS[CATEGORY_GROUPS.length - 1]);
-  h.groups = groups; h.catVersion = 2; setHousehold(h);
+  var defs = CATEGORY_GROUPS.filter(function(g){ return g.id !== 'other'; }), regroup = {}, groups = [], seen = {};
+  function add(g){ if (!seen[g.id]) { seen[g.id] = 1; groups.push(Object.assign({}, g)); } }
+  if (full) {
+    // first time: the new set, then the household's own; an own group that's clearly one of ours ("Faith") is folded into it
+    defs.forEach(add);
+    (h.groups || []).forEach(function(g){
+      if (LEGACY_GROUP_TO[g.id] || g.id === 'other' || seen[g.id]) return;
+      var same = defs.filter(function(x){ var a = norm(x.name), b = norm(g.name); return b && (a === b || a.indexOf(b) === 0 || b.indexOf(a) === 0); })[0];
+      if (same) regroup[g.id] = same.id; else add(g);
+    });
+  } else {
+    // repair: keep the household's own order, names and emojis; drop old groups; put back any of ours that went missing
+    (h.groups || []).forEach(function(g){ if (!LEGACY_GROUP_TO[g.id] && g.id !== 'other') add(g); });
+    defs.forEach(add);
+  }
+  add(CATEGORY_GROUPS[CATEGORY_GROUPS.length - 1]);
+  h.groups = groups; h.catVersion = 2; setHousehold(h); state.household.updatedAt = t;
   var names = {};
   live('categories').forEach(function(c){ names[norm(c.name)] = true; });
+  function put(n){ n.updatedAt = t; state.categories = state.categories.map(function(x){ return x.id === n.id ? n : x; }); }
   DEFAULT_CATEGORIES.forEach(function(d, i){
     var c = byId('categories', d[0]);
     if (c) {
+      if (!full && !LEGACY_GROUP_TO[c.group]) return; // already moved over: leave it as the household has it
       var n = Object.assign({}, c);
       if (n.group !== 'reward') n.group = d[3];
       if (LEGACY_NAMES[d[0]] && n.name === LEGACY_NAMES[d[0]]) { n.name = defaultCatName(d[1]); n.emoji = d[2]; } // untouched default: new name and emoji
-      n.order = i; n.updatedAt = t; state.categories = state.categories.map(function(x){ return x.id === n.id ? n : x; });
-    } else if (!names[norm(defaultCatName(d[1]))]) {
+      n.order = i; put(n);
+    } else if (!names[norm(defaultCatName(d[1]))] && !state.categories.some(function(x){ return x.id === d[0]; })) {
       state.categories.push({id:d[0], name:defaultCatName(d[1]), emoji:d[2], group:d[3], budget:0, order:i, updatedAt:t});
     }
   });
   // the household's own categories: into the group they were folded into, or the nearest new one
-  state.categories = state.categories.map(function(c){
+  live('categories').forEach(function(c){
     var to = regroup[c.group] || LEGACY_GROUP_TO[c.group];
-    if (!to || c.deleted) return c;
-    var n = Object.assign({}, c); n.group = to; n.updatedAt = t; return n;
+    if (to) { var n = Object.assign({}, c); n.group = to; put(n); }
   });
   // the old "Transport & Fuel" is now Taxi & bus: fuel-station spending moves to Petrol
-  state.tx = state.tx.map(function(x){
+  if (full) state.tx = state.tx.map(function(x){
     if (x.categoryId !== 'c-transport' || x.deleted) return x;
     var d = ' ' + String((x.raw || '') + ' ' + (x.note || '')).toLowerCase() + ' ';
     if (!FUEL_WORDS.some(function(w){ return d.indexOf(w) >= 0; })) return x;
@@ -2665,7 +2688,7 @@ function remoteHousehold(local, remote){
   try { localStorage.setItem(LS_BEFORE_JOIN, JSON.stringify({at:now(), state:local})); } catch(e){}
   // the shared household's settings win, but this device's own groups come along so its categories keep their heading
   var out = JSON.parse(JSON.stringify(local)), h = JSON.parse(JSON.stringify(remote.household));
-  var mine = (local.household.groups || []).filter(function(g){ return !baseGroups(h).some(function(x){ return x.id === g.id; }); });
+  var mine = (local.household.groups || []).filter(function(g){ return !LEGACY_GROUP_TO[g.id] && !baseGroups(h).some(function(x){ return x.id === g.id; }); });
   if (mine.length) h.groups = baseGroups(h).concat(mine);
   h.updatedAt = Math.max(+h.updatedAt || 0, +local.household.updatedAt || 0) + 1;
   out.household = h;
