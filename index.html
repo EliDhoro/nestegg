@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261026230631' // set by tools/build.py
+  BUILD: '20261027010236' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2949,7 +2949,8 @@ var Relay = {
     var a = new Uint8Array(18); (window.crypto || window.msCrypto).getRandomValues(a);
     return Array.prototype.map.call(a, function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
   },
-  validUrl: function(u){ return /^https:\/\/script\.google\.com\/(a\/[^\/]+\/)?macros\/s\/[\w-]+\/exec$/.test(u); },
+  // personal accounts: /macros/s/…/exec; Google Workspace (work/school) accounts: /a/macros/<domain>/s/…/exec
+  validUrl: function(u){ return /^https:\/\/script\.google\.com\/(macros|a\/macros\/[^\/]+|a\/[^\/]+\/macros)\/s\/[\w-]+\/exec$/.test(u); },
   // Everything goes in a POST body (the key never sits in a URL). text/plain keeps it a "simple" request, which Apps Script allows.
   call: function(body, url){
     body.key = body.key || device.relayKey;
@@ -2973,10 +2974,26 @@ var Relay = {
   pull: function(since){ return this.call({action:'get', since: since == null ? null : since}); },
   push: function(base, text){ return this.call({action:'put', base:base, data:text}); },
   joinCode: function(){ return 'NEST1:' + btoa(device.relayUrl + ' ' + device.relayKey); },
+  // Forgiving, because codes travel through WhatsApp and the like: quotes, full stops, line breaks, hidden characters,
+  // words before or after it, web-safe characters. Returns {url, key}, or {error} saying what's wrong with it.
   parseCode: function(code){
-    var m = /NEST1:([A-Za-z0-9+\/=]+)/.exec((code || '').replace(/\s+/g, ''));
-    if (!m) return null;
-    try { var p = atob(m[1]).split(' '); return this.validUrl(p[0]) && p[1] ? {url:p[0], key:p[1]} : null; } catch(e){ return null; }
+    var raw = String(code || '').replace(/[​-‍⁠﻿"'“”‘’`*~]/g, ' '), self = this, best = null;
+    if (!/nest1\s*:/i.test(raw)) return {error:'That isn\'t a Nestegg join code — it starts with NEST1: . On your partner\'s Nestegg: ⚙️ Settings → Sync → Share join code.'};
+    // as pasted (it ends at the first space), then with any line breaks inside it taken out
+    [raw, raw.replace(/\s+/g, '')].some(function(s){
+      var m = /nest1\s*:\s*([A-Za-z0-9+\/_-]+={0,2})/i.exec(s); if (!m) return false;
+      var b = m[1].replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
+      if (b.length % 4 === 1) { best = best || {error:'cut'}; return false; }
+      while (b.length % 4) b += '=';
+      var txt; try { txt = atob(b); } catch(e){ best = best || {error:'garbled'}; return false; }
+      var url = txt.split(' ')[0], key = (txt.split(' ')[1] || '').replace(/[^0-9a-f]/g, '');
+      if (self.validUrl(url) && key.length === 36) { best = {url:url, key:key}; return true; }
+      best = {error: /^https:\/\/script\.google\.com\//.test(url) && key.length < 36 ? 'cut' : 'garbled'};
+      return false;
+    });
+    if (best && best.error === 'cut') best.error = 'This code is incomplete — the end got cut off when it was copied. On your partner\'s phone use the 📋 Copy button (not selecting the text by hand), send it again, and paste the whole message here.';
+    if (best && best.error === 'garbled') best.error = 'This code got changed on the way. On your partner\'s phone use 📋 Copy, send it again as a normal message, and paste it here.';
+    return best || {error:'That isn\'t a Nestegg join code.'};
   }
 };
 
@@ -3149,7 +3166,7 @@ ACTIONS.showJoinCode = function(){ openSheet('joinCode', {}); };
 // Joining with a code: from the welcome screen (no household yet) or from Settings
 function joinWithCode(code){
   var c = Relay.parseCode(code);
-  if (!c) { toast('That doesn\'t look like a Nestegg join code — copy the whole thing'); return; }
+  if (c.error) { device.joinError = c.error; saveDevice(); render(true); toast(c.error); return; }
   relayUse(c.url, c.key, !state.household);
   return runSync(true);
 }
