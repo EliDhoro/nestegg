@@ -259,7 +259,8 @@ var CONFIG = {
   GOOGLE_CLIENT_ID: '337695640575-5fcs07dqha9lh9q24e7qejib21rci1j7.apps.googleusercontent.com',
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
-  VERSION: '1.0.0'
+  VERSION: '1.0.0',
+  BUILD: '20261026131133' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules'];
@@ -1802,9 +1803,11 @@ ACTIONS.saveHousehold = function(){
 };
 
 /* ---------- settings ---------- */
+// '20261026091500' -> '26 Oct 09:15', so you can tell which version a device is running
+function buildDate(){ var b = CONFIG.BUILD; return /^\d{12}/.test(b) ? fmtDate(b.slice(0,4) + '-' + b.slice(4,6) + '-' + b.slice(6,8)) + ' ' + b.slice(8,10) + ':' + b.slice(10,12) : 'dev'; }
 VIEWS.settings = function(){
   var connected = !!device.driveFileId;
-  var html = topbar('Settings', 'Nestegg ' + CONFIG.VERSION, {back:true, right:' '});
+  var html = topbar('Settings', 'Nestegg ' + CONFIG.VERSION + ' · updated ' + buildDate(), {back:true, right:' '});
   html += '<div class="grid two">';
   html += '<div class="card"><h2>🏡 Household</h2><div class="list">' +
     '<div class="li tap" data-act="view" data-id="household"><div class="main"><div class="t">' + esc(state.household.name) + '</div><div class="s">' + esc(members().map(function(m){ return m.name; }).join(' & ')) + ' · month starts on the ' + state.household.periodStartDay + 'th</div></div><span>›</span></div>' +
@@ -2666,8 +2669,18 @@ function init(){
     }
   }
   checkRecap();
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW', e); });
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    // updateViaCache 'none': always ask GitHub for a new sw.js, so a new version is noticed straight away
+    var hadWorker = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js', {updateViaCache:'none'}).then(function(reg){
+      document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') reg.update().catch(function(){}); });
+    }).catch(function(e){ console.warn('SW', e); });
+    // a new version took over while the app was open: reload into it, unless you're in the middle of something
+    navigator.serviceWorker.addEventListener('controllerchange', function(){
+      if (!hadWorker) return;
+      if (!ui.sheet && !ui.view) location.reload();
+      else toast('Nestegg was updated — close and reopen it to use the new version');
+    });
   }
   var lastDay = todayStr();
   document.addEventListener('visibilitychange', function(){
