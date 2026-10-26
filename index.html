@@ -252,6 +252,14 @@ table.tbl{border-collapse:collapse;width:100%;font-size:13.5px}
 .kpi .v{overflow-wrap:anywhere}
 @media(max-width:380px){.kpi .v{font-size:15px}.big-num{font-size:30px}}
 
+/* receipt review: name across the top, then amount · line · remove */
+.ritem{display:grid;grid-template-columns:96px 1fr auto;gap:6px;padding:8px 0;border-bottom:1px solid var(--line)}
+.ritem input:first-child{grid-column:1 / -1}
+.ritem .input{min-height:38px;font-size:14px}
+.ritem .ramt{text-align:right}
+.spinner{width:36px;height:36px;margin:0 auto;border-radius:50%;border:4px solid var(--line);border-top-color:var(--brand);animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
 </style>
 </head>
 <body>
@@ -259,6 +267,7 @@ table.tbl{border-collapse:collapse;width:100%;font-size:13.5px}
 <div id="nav-root"></div>
 <div id="sheet-root"></div>
 <div id="toasts"></div>
+<input type="file" accept="image/*" id="receipt-file" data-change="receiptFile" hidden>
 <canvas id="confetti"></canvas>
 <noscript><p style="padding:20px">Nestegg needs JavaScript switched on.</p></noscript>
 <script>
@@ -270,10 +279,10 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261026185727' // set by tools/build.py
+  BUILD: '20261026230631' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
-var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules'];
+var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
 var TIERS = [
   {name:'Bronze', min:0, emoji:'🥉'},
   {name:'Silver', min:400, emoji:'🥈'},
@@ -368,7 +377,7 @@ function defaultCatName(name){ return name.replace('%m1%', (member('m1') || {nam
 function baseGroups(h){ return (h && h.groups) || LEGACY_GROUPS; }
 
 function blankState(){
-  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[]};
+  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[]};
 }
 function defaultDevice(){
   return {memberId:null, clientId:'', autoSync:null, driveFileId:null, token:null, tokenExp:0, lastSync:0, syncError:'',
@@ -1725,6 +1734,7 @@ SHEETS.add = function(sh){
   if (sh.txType === 'skip') html += '<p class="small muted center" style="margin:0 0 6px">Wanted something, didn\'t buy it? Log it — it counts as a win.</p>';
   html += '<div class="keypad">' + ['1','2','3','4','5','6','7','8','9','.','0','⌫'].map(function(k){ return '<button data-act="key" data-k="' + k + '">' + k + '</button>'; }).join('') + '</div>';
   if (sh.txType === 'expense') html += '<div class="chips" style="justify-content:center;margin-bottom:10px">' +
+    (sh.editId ? '' : '<button class="chip" data-act="scanReceipt">📷 Scan receipt</button>') +
     '<button class="chip ' + (sh.refund ? 'on' : '') + '" data-act="addRefund">↩️ It\'s a refund</button><button class="chip ' + (sh.split ? 'on' : '') + '" data-act="addSplit">✂️ Split across lines</button></div>';
   if (sh.txType === 'expense' || sh.txType === 'skip') {
     var cats = addCats(sh);
@@ -1750,6 +1760,10 @@ SHEETS.add = function(sh){
     (sh.editId ? '<button class="btn danger" data-act="addDelete" style="flex:0 0 auto">Delete</button>' : '') + '</div>';
   var orig = sh.editId && byId('tx', sh.editId);
   if (orig && orig.raw) html += '<p class="tiny muted mt">Bank description: <span class="code">' + esc(orig.raw) + '</span></p>';
+  // a scanned receipt keeps what was on the slip, per line
+  var slip = sh.editIds ? sh.editIds.map(function(id){ return byId('tx', id); }).filter(function(t){ return t && t.items && t.items.length; }) : [];
+  if (slip.length) html += '<div class="card mt" style="padding:10px 12px"><div class="tiny muted strong">ON THE SLIP</div>' + slip.map(function(t){ var c = cat(t.categoryId);
+    return '<div class="small" style="margin-top:6px"><b>' + c.emoji + ' ' + esc(c.name) + '</b> — ' + t.items.map(function(x){ return esc(x.n) + ' ' + fmtRc(x.a); }).join(', ') + '</div>'; }).join('') + '</div>';
   return html;
 };
 /* ---------- two-step category picker: a group's square, then the line inside it ---------- */
@@ -2029,6 +2043,7 @@ VIEWS.settings = function(){
     html += '<p class="small">✅ Automatic sync is on' + (device.lastSync ? ' · last synced ' + timeAgo(device.lastSync) : '') + '</p>' +
       (device.syncError ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
       '<div class="btns"><button class="btn primary" data-act="syncNow">Sync now</button><button class="btn" data-act="showJoinCode">🔗 Share join code</button></div>' +
+      (+device.relayVersion >= 2 ? '<p class="small mt">🧾 Receipt reading is on</p>' : '<div class="li tap mt" data-act="view" data-id="relayUpdate"><div class="ico">🧾</div><div class="main"><div class="t">Turn on receipt reading</div><div class="s">A 3-minute update to your sync script</div></div><span>›</span></div>') +
       '<button class="btn ghost sm mt" data-act="relayDisconnect">Turn off sync on this device</button>';
   } else {
     html += '<p class="small">Keep both phones and PCs up to date by themselves — no signing in. Free, and it runs in your own Google account.</p>' +
@@ -2543,6 +2558,268 @@ SHEETS.imported = function(sh){
 };
 ACTIONS.impSuggest = function(){ closeSheet(); ACTIONS.suggestBudget(); };
 
+/* ===== Nestegg — receipt scanning: photo → Google reads the text (via the household's sync script) → items on lines ===== */
+
+/* ---------- which line an item belongs to ---------- */
+// Checked in this order, so specific phrases win ("peanut butter" before "butter", "apple juice" before "apple").
+// Words match at the start of a word, so "tomato" also catches "tomatoes". Includes common till-slip abbreviations.
+var ITEM_WORDS = [
+  ['c-veg', ['watermelon','sweet potato','sweetcorn','sweet corn','coleslaw']],
+  ['c-oils', ['peanut butter','tomato sauce','all gold','mayo','atchar','atchaar','chakalaka','stock','soup','knorr','royco','aromat','rajah','curry','masala',
+    'spice','seasoning','salt','black pepper','peppercorn','vinegar','oil','sunflower','olive','canola','margarine','marg','rama','stork','flora','yeast',
+    'baking powder','bicarb','jam','honey','golden syrup','sauce','chutney','mrs balls','robertsons','paprika','barbecue','bbq']],
+  ['c-drinks', ['juice','cordial','oros','coke','coca','fanta','sprite','pepsi','cream soda','soda','mineral water','still water','sparkling','water','tea',
+    'rooibos','five roses','coffee','ricoffy','nescafe','frisco','milo','hot choc','energy drink','red bull','powerade','twist','appletiser','grapetiser',
+    'iron brew','stoney','beer','wine','cider','savanna','castle','hunters','chips','crisps','simba','lays','doritos','nik nak','niknak','fritos','popcorn',
+    'biscuit','cookie','tennis','marie','choc','sweets','candy','gum','lollipop','ice cream','snack','rusk','ouma','bar one','kitkat','lunch bar','cadbury',
+    'chappies','jelly','liqui fruit','ceres','fizz','bev','drink']],
+  ['c-toiletries', ['soap','lux','protex','lifebuoy','shampoo','conditioner','toothpaste','tooth paste','colgate','aquafresh','close up','toothbrush','mouthwash',
+    'deodorant','deo','roll on','shield','rexona','lotion','body cream','vaseline','nivea','petroleum jelly','sanitary','pads','always','kotex','tampon',
+    'toilet paper','toilet roll','toilet tissue','twinsaver','tissues','razor','gillette','shaving','cotton wool','earbuds','ear buds','nappies','nappy',
+    'diaper','huggies','pampers','baby wipes','wipes','sunscreen','hair food','relaxer','dark and lovely','glycerin','dove','axe','sta sof','bath']],
+  ['c-cleaning', ['sunlight','dishwash','dish wash','washing powder','washing liquid','omo','ariel','surf','maq','fabric softener','comfort','jik','bleach',
+    'handy andy','domestos','harpic','toilet cleaner','pine gel','mr muscle','sponge','scourer','steelwool','refuse bag','bin bag','garbage bag','foil','cling',
+    'matches','candle','mop','broom','polish','doom','insect','air freshener','glade','dettol','disinfectant','cleaner','detergent','serviette','paper towel',
+    'kitchen towel','cups','plates','spoons','straws','sunlite']],
+  ['c-meat', ['chicken','chkn','chick','braai pack','drumstick','thigh','wings','breast','beef','mince','steak','stew','brisket','pork','chops','lamb','mutton',
+    'wors','boerewors','sausage','polony','vienna','russian','frankfurter','bacon','ham','salami','liver','gizzard','tripe','mogodu','ox ','offal','trotter',
+    'fish','hake','snoek','pilchard','sardine','tuna','prawn','meat','biltong','rainbow','county fair','enterprise']],
+  ['c-dairy', ['milk','mlk','maas','amasi','inkomazi','yoghurt','yogurt','yog','cheese','chs','cheddar','gouda','butter','cream','eggs','egg','custard',
+    'clover','parmalat','danone','ultra mel']],
+  ['c-starch', ['mealie','maize','meal','pap','iwisa','white star','ace ','super maize','hupfu','sadza','rice','tastic','spekko','bread','brd','loaf','roll',
+    'bun','baps','albany','sasko','blue ribbon','flour','pasta','spaghetti','macaroni','noodle','samp','oats','jungle','cereal','corn flakes','cornflakes',
+    'weet bix','weetbix','pronutro','morvite','sugar','vetkoek','scone','muffin','crackers','provita','potato chips']],
+  ['c-veg', ['tomato','tom ','onion','potato','pot ','cabbage','spinach','morogo','carrot','pepper','lettuce','cucumber','beetroot','butternut','pumpkin',
+    'gem squash','squash','broccoli','cauliflower','green beans','baked beans','beans','peas','mixed veg','frozen veg','mushroom','garlic','ginger','chilli',
+    'avocado','avo','apple','banana','orange','naartjie','grape','pear','peach','plum','mango','pineapple','watermelon','melon','lemon','lime','strawberr',
+    'fruit','veg','salad','coleslaw']],
+  ['c-medical', ['panado','paracetamol','grandpa','disprin','ibuprofen','med lemon','medlemon','corenza','tablets','capsules','vitamin','plaster','bandage',
+    'betadine','pharmacy','script','morning after','pregnancy test','cough','flu']],
+  ['c-fuel', ['unleaded','ulp','diesel','petrol','fuel','lrp']],
+  ['c-airtime', ['airtime','data bundle','vodacom','mtn','cell c','telkom']],
+  ['c-utilities', ['electricity','prepaid elec']],
+  ['c-clothing', ['shirt','tshirt','tee','jeans','trouser','dress','skirt','jacket','jersey','socks','underwear','panties','bra ','shoes','sneakers','takkies','slippers']],
+  ['c-homecare', ['bulb','globe','battery','batteries','extension','plug','adaptor','paint','screws']]
+];
+// What a shop usually sells, for items the words above don't recognise. Restaurants win outright: chicken at KFC is eating out.
+var STORE_KINDS = [
+  {cat:'c-eatingout', only:true, words:['kfc','mcdonald','nando','steers','debonairs','wimpy','spur','chicken licken','romans','roman s','pizza','burger','hungry lion',
+    'king pie','pie city','fishaways','galito','rocomamas','ocean basket','mugg','vida e','starbucks','restaurant','cafe','bistro','grill','takeaway','uber eats','mr d']},
+  {cat:'c-fuel', words:['engen','shell','sasol','bp ','caltex','totalenergies','total energies','astron','puma','garage','service station']},
+  {cat:'c-toiletries', words:['clicks','dis chem','dischem','pharmacy']},
+  {cat:'c-clothing', words:['pep ','ackermans','mr price','truworths','edgars','jet ','markham','foschini','cotton on','studio 88','sportscene','totalsports']},
+  {cat:'c-homecare', words:['builders','cashbuild','hardware','leroy merlin','mica']},
+  {cat:'c-groceries', words:['checkers','shoprite','pick n pay','picknpay','pnp','woolworths','woolies','spar','food lover','boxer','usave','u save','ok foods',
+    'ok minimark','makro','cambridge','fruit and veg','butchery','superspar','kwikspar','game']}
+];
+function wordsIn(text){ return ' ' + String(text || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim() + ' '; }
+function hasWord(d, w){ return d.indexOf(' ' + w) >= 0; }
+function storeKind(store){
+  var d = wordsIn(store), k = null;
+  STORE_KINDS.forEach(function(s){ if (!k && s.words.some(function(w){ return hasWord(d, w); })) k = s; });
+  return k;
+}
+// What an item is called once sizes, codes and amounts are stripped, so "LUX SOAP 175G" and "LUX SOAP 100G" learn together
+function itemKey(name){
+  return wordsIn(name).replace(/\b\d+([.,]\d+)?\s*(kg|g|ml|l|lt|ltr|x|pk|pack|s|ea)?\b/g, ' ').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+function existingCat(id){ var c = id && byId('categories', id); return c && !c.deleted ? id : null; }
+function classifyItem(name, store){
+  var key = itemKey(name), learned = null;
+  live('itemRules').forEach(function(r){ if (r.pattern === key && existingCat(r.categoryId)) learned = r.categoryId; });
+  if (learned) return learned;
+  var kind = storeKind(store);
+  if (kind && kind.only && existingCat(kind.cat)) return kind.cat;
+  var d = wordsIn(name);
+  for (var i = 0; i < ITEM_WORDS.length; i++) {
+    if (ITEM_WORDS[i][1].some(function(w){ return hasWord(d, w); }) && existingCat(ITEM_WORDS[i][0])) return ITEM_WORDS[i][0];
+  }
+  return existingCat(kind && kind.cat) || existingCat('c-groceries') || 'c-other';
+}
+
+/* ---------- reading the text Google gives back ---------- */
+var R_AMOUNT = /(-)?\s*R?\s?(\d{1,3}(?:[ ,]\d{3})+|\d+)([.,]\d{2})\s*(-)?\s*[A-Z*#]{0,2}\s*$/i;
+var R_TOTAL = /\b(total|amount due|balance due|to pay|total due)\b/i;
+var R_NOT_ITEM = /\b(sub ?-?total|total|balance|amount due|tender(ed)?|change|cash|card|visa|master ?card|debit|credit|vat|tax|rounding|items? sold|no\.? of items|till|operator|cashier|tel|phone|reg no|auth|approved|account|acc no|ref|terminal|merchant|invoice|slip|zar|points|thank|welcome|return|exchange|pin|signature|customer|copy|date|time|trans|tran|seq|cell|www|http|@ ?[a-z]+\.co)\b/i;
+var R_DISCOUNT = /\b(disc|discount|save|saving|savings|saved|promo|xtra savings|smart ?shopper|less|coupon|voucher|combo deal|multi ?buy|bonus|price cut|instant)\b/i;
+var R_QTY_LINE = /(^\s*\d+([.,]\d+)?\s*(x|@|kg|g|ea)\b)|@/i;
+function receiptAmount(m){
+  var whole = m[2].replace(/[ ,]/g, ''), v = parseFloat(whole + '.' + m[3].slice(1));
+  return (m[1] || m[4]) ? -v : v;
+}
+function cleanItemName(s){
+  s = String(s || '').replace(/^\s*\d{5,}\s*/, '').replace(/\s+[A-Z*#]{1,2}\s*$/, '').replace(/\s{2,}/g, ' ').trim();
+  return s.toLowerCase().replace(/\b[a-z]/g, function(c){ return c.toUpperCase(); });
+}
+function findDate(text){
+  var m;
+  if ((m = /\b(20\d{2})[\/\-.](\d{1,2})[\/\-.](\d{1,2})\b/.exec(text))) return m[1] + '-' + pad(+m[2]) + '-' + pad(+m[3]);
+  if ((m = /\b(\d{1,2})[\/\-.](\d{1,2})[\/\-.](20\d{2}|\d{2})\b/.exec(text))) return (m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + pad(+m[2]) + '-' + pad(+m[1]);
+  if ((m = /\b(\d{1,2})\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(20\d{2})\b/i.exec(text))) {
+    return m[3] + '-' + pad(['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'].indexOf(m[2].toLowerCase().slice(0, 3)) + 1) + '-' + pad(+m[1]);
+  }
+  return null;
+}
+function parseReceipt(text){
+  var lines = String(text || '').split(/\r?\n/).map(function(l){ return l.replace(/\t/g, ' ').trim(); }).filter(Boolean);
+  var out = {store:'', date:findDate(text), items:[], total:null, method:null};
+  // the shop: a known name near the top, else the first line with letters
+  lines.slice(0, 8).forEach(function(l){ if (!out.store && storeKind(l)) out.store = cleanItemName(l); });
+  if (!out.store) lines.some(function(l){ if (/[a-z]{3}/i.test(l) && !R_AMOUNT.test(l)) { out.store = cleanItemName(l); return true; } return false; });
+  if (/\b(cash tendered|cash)\b/i.test(text) && !/\b(card|visa|master ?card|debit)\b/i.test(text)) out.method = 'cash';
+  else if (/\b(card|visa|master ?card|debit|credit)\b/i.test(text)) out.method = 'card';
+  var pending = '', names = [], amounts = [];
+  lines.forEach(function(l){
+    var m = R_AMOUNT.exec(l);
+    if (!m) {
+      // a line without a price: an item name waiting for its price on the next line (or in a column further down)
+      if (/^\s*[R-]?\s?\d[\d ,]*[.,]\d{2}\s*$/.test(l)) return;
+      if (/[a-z]{2}/i.test(l) && !R_NOT_ITEM.test(l) && !storeKind(l)) { pending = l; names.push(l); }
+      return;
+    }
+    var amt = receiptAmount(m), name = l.slice(0, m.index).trim();
+    if (!/[a-z]{2}/i.test(name) && !R_QTY_LINE.test(name)) { amounts.push(amt); if (!name) return; }
+    if (R_TOTAL.test(l)) {
+      // "TOTAL SAVINGS" and "TOTAL VAT" are just information; of the real totals, the biggest is what was paid
+      if (!/sub ?-?total/i.test(l) && !R_DISCOUNT.test(l) && !/(vat|tax|items?)/i.test(l)) out.total = Math.max(out.total || 0, Math.abs(amt));
+      return;
+    }
+    if (R_NOT_ITEM.test(l) && !R_DISCOUNT.test(l)) return;
+    if (R_DISCOUNT.test(l) || amt < 0) { var last = out.items[out.items.length - 1]; if (last) last.amount = round2(last.amount - Math.abs(amt)); return; }
+    if (R_QTY_LINE.test(name) || !/[a-z]{2}/i.test(name)) { if (!pending) return; name = pending; } // "2 @ 34.99   69.98" or "0.856 KG @ 22.99/KG"
+    pending = '';
+    if (names.length && names[names.length - 1] === name) names.pop();
+    out.items.push({name:cleanItemName(name), amount:round2(amt)});
+  });
+  // Google sometimes reads a narrow slip as two columns: all the names, then all the prices. Pair them up in order —
+  // the names nearest the prices (the top lines are the shop's address) with the first prices (a lone total comes last).
+  if (out.items.length < 2 && names.length >= 2 && amounts.length >= 2) {
+    var n = Math.min(names.length, amounts.length), ns = names.slice(names.length - n), as = amounts.slice(0, n);
+    out.items = ns.map(function(nm, i){ return {name:cleanItemName(nm), amount:round2(as[i])}; }).filter(function(x){ return x.amount > 0; });
+  }
+  if (out.total === null && out.items.length) out.total = round2(sum(out.items, function(x){ return x.amount; }));
+  return out;
+}
+
+/* ---------- photo → text ---------- */
+// Shrinks the photo so it sends quickly on mobile data but stays sharp enough to read (narrow slips keep their width)
+function shrinkPhoto(file){
+  return new Promise(function(resolve, reject){
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function(){
+      var s = Math.min(1, 1400 / img.width, 3200 / img.height), c = document.createElement('canvas');
+      c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+      var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url); resolve(c.toDataURL('image/jpeg', 0.78).split(',')[1]);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('That file isn\'t a photo Nestegg can open.')); };
+    img.src = url;
+  });
+}
+ACTIONS.scanReceipt = function(){
+  if (!Relay.ready()) { closeSheet(); openView('settings'); toast('Receipt reading uses your automatic sync — set that up first'); return; }
+  var f = $('#receipt-file'); if (f) { f.value = ''; f.click(); }
+};
+CHANGES.receiptFile = function(el){
+  var file = el.files && el.files[0]; if (!file) return;
+  openSheet('receipt', {stage:'reading'});
+  shrinkPhoto(file).then(function(b64){ return Relay.ocr(b64); }).then(function(text){
+    var r = parseReceipt(text);
+    if (!r.items.length) { ui.sheet = {type:'receipt', stage:'error', msg:'Couldn\'t find any items on that photo. Try again with the whole slip flat, in good light.', text:text}; renderSheet(); return; }
+    var date = r.date && r.date <= todayStr() && r.date > addDays(todayStr(), -400) ? r.date : todayStr();
+    ui.sheet = {type:'receipt', stage:'review', store:r.store, date:date, total:r.total, method:r.method || device.lastMethod || null,
+      items:r.items.map(function(x){ var c = classifyItem(x.name, r.store); return {name:x.name, amount:String(x.amount), cat:c, guess:c}; })};
+    renderSheet();
+  }).catch(function(e){
+    ui.sheet = {type:'receipt', stage: e.needsUpdate ? 'update' : 'error', msg:e.message || String(e)}; renderSheet();
+  });
+};
+
+/* ---------- review: every item on a line, then save as one split receipt ---------- */
+function receiptLines(sh){
+  var by = {}, order = [];
+  sh.items.forEach(function(x){ var a = parseAmount(x.amount); if (!(a > 0)) return; if (!by[x.cat]) { by[x.cat] = 0; order.push(x.cat); } by[x.cat] = round2(by[x.cat] + a); });
+  return order.map(function(id){ return {cat:id, amount:by[id]}; });
+}
+SHEETS.receipt = function(sh){
+  if (sh.stage === 'reading') return '<h2>🧾 Reading your receipt…</h2><div class="center" style="padding:28px 0"><div class="spinner"></div><p class="small muted mt">Google is reading the slip. This takes a few seconds.</p></div>';
+  if (sh.stage === 'update') return '<h2>🧾 One quick update first</h2><p class="small">Your sync script needs a small update before it can read receipts. It takes about 3 minutes, once.</p>' +
+    '<button class="btn primary block" data-act="openRelayUpdate">Show me how</button>';
+  if (sh.stage === 'error') return '<h2>🧾 Couldn\'t read that</h2><p class="small">' + esc(sh.msg) + '</p><div class="btns"><button class="btn primary" data-act="scanReceipt">Try another photo</button><button class="btn" data-act="closeSheet">Close</button></div>';
+  var cats = liveCats().filter(function(c){ return c.group !== 'reward'; }), lines = receiptLines(sh);
+  var itemsTotal = round2(sum(lines, function(l){ return l.amount; })), diff = sh.total ? round2(sh.total - itemsTotal) : 0;
+  return '<h2>🧾 ' + esc(sh.store || 'Receipt') + '</h2>' +
+    '<div class="row" style="gap:8px"><label class="field" style="flex:1;margin:0"><span>Date</span><input class="input" type="date" data-change="rcDate" value="' + sh.date + '"></label>' +
+    '<label class="field" style="flex:1;margin:0"><span>Shop</span><input class="input" data-input="rcStore" value="' + esc(sh.store || '') + '"></label></div>' +
+    '<div class="card mt" style="padding:10px 12px"><div class="small strong">' + fmtRc(itemsTotal) + ' on ' + lines.length + ' line' + (lines.length === 1 ? '' : 's') + '</div><div class="small muted">' +
+      lines.map(function(l){ var c = cat(l.cat); return c.emoji + ' ' + esc(c.name) + ' ' + fmtRc(l.amount); }).join(' · ') + '</div>' +
+      (Math.abs(diff) >= 0.01 ? '<div class="small neg mt">The slip says ' + fmtRc(sh.total) + ' — ' + fmtRc(Math.abs(diff)) + (diff > 0 ? ' isn\'t on an item yet' : ' too much') + '. Check for a missed or misread line.' +
+        (diff > 0 ? ' <button class="btn sm" data-act="rcAddDiff">Add it as an item</button>' : '') + '</div>' : '<div class="small pos mt">✅ Matches the slip\'s total</div>') + '</div>' +
+    '<div class="tiny muted strong mt">ITEMS — change a line and Nestegg remembers it next time</div>' +
+    sh.items.map(function(x, i){
+      return '<div class="ritem"><input class="input" data-input="rcName" data-i="' + i + '" value="' + esc(x.name) + '"><input class="input ramt" inputmode="decimal" data-input="rcAmt" data-change="rcAmt" data-i="' + i + '" value="' + esc(x.amount) + '">' +
+        '<select class="input" data-change="rcCat" data-i="' + i + '">' + catOptionsHtml(cats, x.cat) + '</select><button class="btn sm" data-act="rcDel" data-i="' + i + '" aria-label="Remove item">✕</button></div>';
+    }).join('') +
+    '<button class="btn sm mt" data-act="rcAdd">+ Add an item</button>' +
+    '<div class="row small" style="gap:8px;margin:12px 0 4px;flex-wrap:wrap"><span class="muted">Paid with</span>' +
+      METHODS.map(function(m){ return '<button class="chip ' + (sh.method === m[0] ? 'on' : '') + '" data-act="rcMethod" data-id="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>' +
+    '<div class="btns sticky-save"><button class="btn primary" data-act="rcSave">Save ' + fmtRc(itemsTotal) + '</button></div>';
+};
+function rcRefreshSummary(){ var y = $('.sheet') && $('.sheet').scrollTop; renderSheet(); if ($('.sheet')) $('.sheet').scrollTop = y; }
+INPUTS.rcName = function(el){ ui.sheet.items[+el.getAttribute('data-i')].name = el.value; };
+INPUTS.rcAmt = function(el){ ui.sheet.items[+el.getAttribute('data-i')].amount = el.value; };
+INPUTS.rcStore = function(el){ ui.sheet.store = el.value; };
+CHANGES.rcAmt = function(){ rcRefreshSummary(); };
+CHANGES.rcDate = function(el){ if (el.value) ui.sheet.date = el.value; };
+CHANGES.rcCat = function(el){ ui.sheet.items[+el.getAttribute('data-i')].cat = el.value; rcRefreshSummary(); };
+ACTIONS.rcDel = function(el){ ui.sheet.items.splice(+el.getAttribute('data-i'), 1); rcRefreshSummary(); };
+ACTIONS.rcAdd = function(){ ui.sheet.items.push({name:'', amount:'', cat:existingCat('c-groceries') || 'c-other', guess:null}); rcRefreshSummary(); };
+ACTIONS.rcAddDiff = function(){
+  var sh = ui.sheet, d = round2(sh.total - sum(receiptLines(sh), function(l){ return l.amount; }));
+  if (d > 0) sh.items.push({name:'Rest of the slip', amount:String(d), cat:existingCat('c-groceries') || 'c-other', guess:null});
+  rcRefreshSummary();
+};
+ACTIONS.rcMethod = function(el){ var m = el.getAttribute('data-id'); ui.sheet.method = ui.sheet.method === m ? null : m; rcRefreshSummary(); };
+ACTIONS.rcSave = function(){
+  var sh = ui.sheet, lines = receiptLines(sh);
+  if (!lines.length) { toast('Add at least one item with an amount'); return; }
+  var before = snapshot(), splitId = lines.length > 1 ? 's-' + uid() : null, t0 = now(), note = (sh.store || 'Receipt').trim();
+  lines.forEach(function(l, i){
+    var items = sh.items.filter(function(x){ return x.cat === l.cat && parseAmount(x.amount) > 0; }).map(function(x){ return {n:x.name, a:parseAmount(x.amount)}; });
+    upsert('tx', {id:'t-' + uid(), type:'expense', amount:l.amount, categoryId:l.cat, date:sh.date, memberId:me().id, note:note, splitId:splitId,
+      method:sh.method || null, items:items, source:'receipt', createdOn:todayStr(), createdAt:t0 + i});
+  });
+  // learn: the next slip with the same item goes to the line chosen here
+  sh.items.forEach(function(x){
+    var key = itemKey(x.name); if (!key || x.cat === x.guess) return;
+    upsert('itemRules', {id:'ir-' + key.replace(/[^A-Z0-9]+/g, '-').toLowerCase(), pattern:key, categoryId:x.cat});
+  });
+  if (sh.method) { device.lastMethod = sh.method; saveDevice(); }
+  saveState(); closeSheet(); render(true); celebrate(before);
+  setTimeout(function(){ toast('🧾 Saved on ' + lines.length + ' line' + (lines.length === 1 ? '' : 's')); }, 400);
+};
+
+/* ---------- updating the sync script so it can read receipts ---------- */
+ACTIONS.openRelayUpdate = function(){ closeSheet(); openView('relayUpdate'); };
+VIEWS.relayUpdate = function(){
+  var html = topbar('Update the sync script', 'For receipt reading · about 3 minutes, once', {back:true, backAct:'toSettings', right:' '});
+  function step(n, body){ return '<div class="row" style="gap:12px;align-items:flex-start;margin:12px 0"><span class="pill green">' + n + '</span><div class="small" style="flex:1">' + body + '</div></div>'; }
+  html += '<div class="card"><p class="small muted">On the computer, signed in to the Google account that has your sync script. Your budget data isn\'t touched, and the join code stays the same.</p>' +
+    step(1, 'Open <a href="https://script.google.com/home" target="_blank" rel="noopener">script.google.com</a> and click your Nestegg sync project.') +
+    step(2, 'Select all the code there, delete it, paste this instead, and press <b>Ctrl+S</b>:<textarea class="input code" id="relay-code" readonly rows="6" style="width:100%;margin-top:6px;font-size:11px">' +
+      esc(RELAY_SCRIPT.replace('%KEY%', device.relayKey || '')) + '</textarea><button class="btn sm mt" data-act="copyRelayCode">📋 Copy the code</button>') +
+    step(3, 'At the top, next to <b>▷ Run</b>, pick <b>authorize</b> in the list, then press <b>Run</b>. Google asks for permission: choose your account → <b>Advanced</b> → <b>Go to … (unsafe)</b> → <b>Allow</b>.') +
+    step(4, '<b>Deploy</b> → <b>Manage deployments</b> → the ✏️ pencil → under Version choose <b>New version</b> → <b>Deploy</b>. (Not "New deployment" — that would change the address.)') +
+    step(5, '<button class="btn primary" data-act="relayCheck">Check it worked</button>') + '</div>';
+  return html;
+};
+ACTIONS.relayCheck = function(){
+  Relay.call({action:'ping'}).then(function(j){
+    if (+j.version >= 2) { toast('✅ Updated — receipt reading is ready'); ui.view = null; render(); }
+    else toast('Still the old script. Check step 4: Manage deployments → New version → Deploy.');
+  }).catch(function(e){ toast(e.message || String(e)); });
+};
+
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
@@ -2613,12 +2890,15 @@ var RELAY_SCRIPT = [
   '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
   "var KEY = '%KEY%';",
   "var FILE = 'nestegg-household-data.json';",
+  'var VERSION = 2;',
   '',
-  'function doGet(e) { return reply({ok: true, nestegg: true}); }',
-  'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} return reply(handle(p)); }',
+  'function doGet(e) { return reply({ok: true, nestegg: true, version: VERSION}); }',
+  'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} var out = handle(p); out.version = VERSION; return reply(out); }',
   '',
   'function handle(p) {',
   "  if (p.key !== KEY) return {ok: false, error: 'bad-key'};",
+  "  if (p.action === 'ping') return {ok: true};",
+  "  if (p.action === 'ocr') return readReceipt(p);",
   '  var lock = LockService.getScriptLock(); lock.waitLock(20000);',
   '  try {',
   "    var props = PropertiesService.getScriptProperties(), rev = Number(props.getProperty('rev') || 0), file = dataFile(props);",
@@ -2643,6 +2923,23 @@ var RELAY_SCRIPT = [
   '  return best;',
   '}',
   '',
+  '// Receipt photos: Google Drive reads the text into a temporary Doc, which is deleted straight away',
+  'function readReceipt(p) {',
+  "  var b = 'nestegg' + Date.now(), auth = {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()};",
+  "  var meta = JSON.stringify({name: 'nestegg-receipt', mimeType: 'application/vnd.google-apps.document'});",
+  "  var head = '--' + b + '\\r\\nContent-Type: application/json; charset=UTF-8\\r\\n\\r\\n' + meta + '\\r\\n--' + b + '\\r\\nContent-Type: ' + (p.mime || 'image/jpeg') + '\\r\\n\\r\\n';",
+  "  var body = Utilities.newBlob(head).getBytes().concat(Utilities.base64Decode(p.image)).concat(Utilities.newBlob('\\r\\n--' + b + '--').getBytes());",
+  "  var up = UrlFetchApp.fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&ocrLanguage=en', {method: 'post', contentType: 'multipart/related; boundary=' + b, payload: body, headers: auth, muteHttpExceptions: true});",
+  "  if (up.getResponseCode() >= 300) return {ok: false, error: 'ocr-failed', detail: up.getContentText().slice(0, 300)};",
+  '  var id = JSON.parse(up.getContentText()).id;',
+  '  try {',
+  "    return {ok: true, text: UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text/plain', {headers: auth}).getContentText()};",
+  "  } finally { UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id, {method: 'delete', headers: auth, muteHttpExceptions: true}); }",
+  '}',
+  '',
+  '// Run this once from the editor (pick "authorize" next to Run, then press Run) so Google asks you to allow reading receipts',
+  "function authorize() { DriveApp.getRootFolder(); UrlFetchApp.fetch('https://www.google.com'); }",
+  '',
   'function reply(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }'
 ].join('\n');
 
@@ -2661,8 +2958,17 @@ var Relay = {
       .then(function(t){
         var j; try { j = JSON.parse(t); } catch(x){ throw new Error('The sync script isn\'t answering. Check it\'s deployed as a Web app with access for "Anyone".'); }
         if (j.error === 'bad-key') throw new Error('This device\'s sync code doesn\'t match the script. Ask for a fresh join code.');
+        var v = +j.version || 1; if (device.relayVersion !== v) { device.relayVersion = v; saveDevice(); } // receipt reading needs 2
         return j;
       });
+  },
+  // A receipt photo (base64 JPEG) for Google to read; an older script answers without a version and gets an update prompt
+  ocr: function(b64){
+    return this.call({action:'ocr', image:b64, mime:'image/jpeg'}).then(function(j){
+      if (!(+j.version >= 2)) { var e = new Error('The sync script needs a quick update to read receipts.'); e.needsUpdate = true; throw e; }
+      if (!j.ok) throw new Error(j.error === 'ocr-failed' ? 'Google couldn\'t read that photo' + (/insufficient|scope|permission|auth/i.test(j.detail || '') ? ' — the script still needs your permission (step 3 of the update).' : '. Try again with the slip flat and well lit.') : 'Receipt reading problem: ' + (j.error || 'unknown'));
+      return j.text || '';
+    });
   },
   pull: function(since){ return this.call({action:'get', since: since == null ? null : since}); },
   push: function(base, text){ return this.call({action:'put', base:base, data:text}); },
