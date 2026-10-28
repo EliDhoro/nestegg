@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261027010236' // set by tools/build.py
+  BUILD: '20261028084818' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2044,6 +2044,7 @@ VIEWS.settings = function(){
       (device.syncError ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
       '<div class="btns"><button class="btn primary" data-act="syncNow">Sync now</button><button class="btn" data-act="showJoinCode">🔗 Share join code</button></div>' +
       (+device.relayVersion >= 2 ? '<p class="small mt">🧾 Receipt reading is on</p>' : '<div class="li tap mt" data-act="view" data-id="relayUpdate"><div class="ico">🧾</div><div class="main"><div class="t">Turn on receipt reading</div><div class="s">A 3-minute update to your sync script</div></div><span>›</span></div>') +
+      '<div class="li tap mt" data-act="openCheck"><div class="ico">🩺</div><div class="main"><div class="t">Check sync &amp; receipts</div><div class="s">Runs the real checks and gives you a report</div></div><span>›</span></div>' +
       '<button class="btn ghost sm mt" data-act="relayDisconnect">Turn off sync on this device</button>';
   } else {
     html += '<p class="small">Keep both phones and PCs up to date by themselves — no signing in. Free, and it runs in your own Google account.</p>' +
@@ -2957,7 +2958,7 @@ var Relay = {
     return fetch(url || device.relayUrl, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body)})
       .then(function(r){ return r.text(); }, function(){ var e = new Error('No connection right now — it will sync when you\'re back online.'); e.offline = true; throw e; })
       .then(function(t){
-        var j; try { j = JSON.parse(t); } catch(x){ throw new Error('The sync script isn\'t answering. Check it\'s deployed as a Web app with access for "Anyone".'); }
+        var j; try { j = JSON.parse(t); } catch(x){ throw new Error(scriptPageProblem(t)); }
         if (j.error === 'bad-key') throw new Error('This device\'s sync code doesn\'t match the script. Ask for a fresh join code.');
         var v = +j.version || 1; if (device.relayVersion !== v) { device.relayVersion = v; saveDevice(); } // receipt reading needs 2
         return j;
@@ -2996,6 +2997,16 @@ var Relay = {
     return best || {error:'That isn\'t a Nestegg join code.'};
   }
 };
+
+// When the script answers with a Google page instead of data, say what that page means
+function scriptPageProblem(page){
+  var t = String(page || '');
+  if (/authoriz|permission/i.test(t)) return 'Your sync script is waiting for your permission. On the computer: open the script, pick "authorize" next to Run, press Run and Allow. Then Deploy → Manage deployments → ✏️ → New version → Deploy.';
+  if (/function not found|doPost/i.test(t)) return 'The sync script\'s code is incomplete. Paste the whole code again (⚙️ Settings → Sync → Turn on receipt reading → Copy the code), save, then Manage deployments → New version.';
+  if (/unable to open the file|not found|404/i.test(t)) return 'The sync script\'s web address no longer works — it may have been deleted or re-deployed as a new deployment.';
+  if (/sign ?in|accounts\.google/i.test(t)) return 'The sync script asks people to sign in. In Manage deployments, set "Who has access" to Anyone.';
+  return 'The sync script isn\'t answering. Check it\'s deployed as a Web app with access for "Anyone".';
+}
 
 // Both ways of syncing: the sync may hold a different household than this device (say each phone was set up on
 // its own). This device's records are never thrown away — they're added to the shared household, and a copy of the
@@ -3186,6 +3197,81 @@ ACTIONS.driveDisconnect = function(){
   if (!confirmBox('Stop syncing on this device? Your data stays here and in Drive.')) return;
   device.driveFileId = null; device.token = null; device.tokenExp = 0; device.lastSync = 0; saveDevice(); render(true);
 };
+
+/* ===== Nestegg — "Check sync & receipts": real checks run on this device, in plain words, with a report to copy ===== */
+// Each step is {label, status: run|ok|warn|bad, detail}. Comparing the report from two phones shows where they part ways.
+function scriptFingerprint(){
+  var id = (String(device.relayUrl || '').split('/s/')[1] || '').split('/')[0];
+  return id ? id.slice(0, 6) + '…' + id.slice(-4) + ' · key ' + String(device.relayKey || '').slice(0, 4) : 'none';
+}
+// A little printed slip, drawn on the phone, so the receipt test doesn't need a real photo
+function testSlip(){
+  var c = document.createElement('canvas'); c.width = 700; c.height = 420;
+  var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000'; g.font = 'bold 34px monospace';
+  ['NESTEGG TEST SHOP', 'BREAD            12.34', 'MILK 2L          23.45', 'TOTAL            35.79'].forEach(function(l, i){ g.fillText(l, 30, 70 + i * 90); });
+  return c.toDataURL('image/jpeg', 0.9).split(',')[1];
+}
+VIEWS.syncCheck = function(){
+  var ck = ui.check || {steps:[]}, icon = {run:'⏳', ok:'✅', warn:'⚠️', bad:'❌'};
+  var html = topbar('Check sync & receipts', esc(me().name) + '\'s ' + (IS_IOS ? 'iPhone' : 'device') + ' · Nestegg updated ' + buildDate(), {back:true, backAct:'toSettings', right:' '});
+  html += '<div class="card">' + (ck.steps.length ? ck.steps.map(function(s){
+    return '<div class="row" style="gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)"><span>' + icon[s.status] + '</span><div style="flex:1;min-width:0"><div class="strong small">' + esc(s.label) + '</div>' +
+      (s.detail ? '<div class="small muted" style="word-break:break-word">' + esc(s.detail) + '</div>' : '') + '</div></div>';
+  }).join('') : '<p class="small muted">Runs the real thing: talks to your sync script, compares this device with the shared copy, and has Google read a small test slip.</p>') +
+    '<div class="btns mt">' + (ck.running ? '<button class="btn" disabled>Checking…</button>' : '<button class="btn primary" data-act="runCheck">' + (ck.steps.length ? 'Run again' : 'Run the check') + '</button>') +
+    (ck.done ? '<button class="btn" data-act="copyCheck">📋 Copy report</button>' : '') + '</div>' +
+    (ck.done && ck.hereOnly ? '<button class="btn block mt" data-act="checkSendNow">Send this device\'s ' + ck.hereOnly + ' missing entr' + (ck.hereOnly === 1 ? 'y' : 'ies') + ' now</button>' : '') + '</div>';
+  return html;
+};
+ACTIONS.runCheck = function(){
+  var ck = ui.check = {steps:[], running:true}, n = 0;
+  function step(label){ var s = {label:label, status:'run', detail:''}; ck.steps.push(s); render(true); return s; }
+  function set(s, status, detail){ s.status = status; s.detail = detail || ''; render(true); }
+  var s0 = step('This device');
+  set(s0, 'ok', me().name + ' · Nestegg updated ' + buildDate() + ' · ' + live('tx').length + ' entries here · last synced ' + (device.lastSync ? timeAgo(device.lastSync) : 'never') + (device.dirty ? ' · has unsent changes' : ''));
+  if (!Relay.ready()) {
+    set(step('Automatic sync'), 'bad', 'Not set up on this device, so it can\'t share entries. ⚙️ Settings → Sync → I have a join code.');
+    ck.running = false; ck.done = true; render(true); return;
+  }
+  var s1 = step('Sync script: ' + scriptFingerprint());
+  Relay.call({action:'ping'}).then(function(j){
+    var v = +j.version || 1;
+    set(s1, 'ok', 'Answers · version ' + v + (device.syncError ? ' · last sync problem: ' + device.syncError : ''));
+    var s2 = step('Receipt reading in the script');
+    set(s2, v >= 2 ? 'ok' : 'warn', v >= 2 ? 'Version 2 — ready' : 'Old version — needs the 3-minute update (Settings → Sync → Turn on receipt reading)');
+    var s3 = step('This device vs the shared copy');
+    return Relay.call({action:'get', since:null}).then(function(r){
+      var remote = null; try { remote = r.data ? normalizeState(JSON.parse(r.data)) : null; } catch(e){}
+      if (!remote || !remote.household) { set(s3, 'bad', 'The shared copy is empty — this device hasn\'t sent anything yet. Tap Sync now.'); return v; }
+      if (state.household && remote.household.id !== state.household.id) { set(s3, 'bad', 'Different households! This device has "' + state.household.name + '", the shared copy has "' + remote.household.name + '". Join again with the code from the other phone.'); return v; }
+      var mine = {}, theirs = {};
+      live('tx').forEach(function(t){ mine[t.id] = t; });
+      remote.tx.forEach(function(t){ if (!t.deleted) theirs[t.id] = t; });
+      var hereOnly = Object.keys(mine).filter(function(id){ return !theirs[id] && !remote.tx.some(function(x){ return x.id === id && x.deleted; }); });
+      var thereOnly = Object.keys(theirs).filter(function(id){ return !mine[id] && !state.tx.some(function(x){ return x.id === id && x.deleted; }); });
+      ck.hereOnly = hereOnly.length;
+      function newest(map){ var best = null; Object.keys(map).forEach(function(id){ var t = map[id]; if (!best || (t.createdAt || 0) > (best.createdAt || 0)) best = t; }); return best ? fmtDate(best.date) + ' ' + fmtRc(best.amount) + ' by ' + ((member(best.memberId) || {}).name || '?') : 'none'; }
+      set(s3, hereOnly.length || thereOnly.length ? 'warn' : 'ok', 'Shared copy: ' + Object.keys(theirs).length + ' entries (save no. ' + r.rev + '), this device: ' + Object.keys(mine).length + '. ' +
+        (hereOnly.length ? hereOnly.length + ' here haven\'t reached the shared copy. ' : '') + (thereOnly.length ? thereOnly.length + ' in the shared copy aren\'t on this device yet. ' : '') +
+        (!hereOnly.length && !thereOnly.length ? 'They match. ' : '') + 'Newest shared: ' + newest(theirs) + '.');
+      return v;
+    });
+  }).then(function(v){
+    if (!(v >= 2)) return;
+    var s4 = step('Reading a test slip with Google');
+    return Relay.ocr(testSlip()).then(function(text){
+      var r = parseReceipt(text), ok = /12[.,]34/.test(text) && /23[.,]45/.test(text);
+      set(s4, ok ? 'ok' : 'warn', ok ? 'Google read it: ' + r.items.length + ' items, total ' + fmtRc(r.total || 0) : 'Google answered but the text was off: "' + String(text).replace(/\s+/g, ' ').slice(0, 80) + '"');
+    }).catch(function(e){ set(s4, 'bad', e.message || String(e)); });
+  }).catch(function(e){ set(s1, 'bad', e.message || String(e)); })
+  .then(function(){ ck.running = false; ck.done = true; render(true); });
+};
+ACTIONS.copyCheck = function(){
+  var icon = {run:'…', ok:'OK', warn:'CHECK', bad:'PROBLEM'};
+  copyText('Nestegg check — ' + new Date().toISOString().slice(0, 16).replace('T', ' ') + '\n' + ui.check.steps.map(function(s){ return icon[s.status] + ' · ' + s.label + (s.detail ? ' — ' + s.detail : ''); }).join('\n'), 'Report copied — paste it to Claude');
+};
+ACTIONS.checkSendNow = function(){ runSync(true).then(function(){ ACTIONS.runCheck(); }); };
+ACTIONS.openCheck = function(){ ui.check = null; openView('syncCheck'); ACTIONS.runCheck(); };
 
 /* ===== Nestegg — start-up ===== */
 var IS_IOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
