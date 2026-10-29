@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029230855' // set by tools/build.py
+  BUILD: '20261029232819' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -3202,13 +3202,58 @@ VIEWS.recon = function(){
   return html;
 };
 // Everything below the balance box: redrawn while typing without losing the cursor
+// How Nestegg's figure is made up: the starting balance, then every entry logged on this account since — and what isn't counted
+function rcMakeup(c, rc){
+  var acc = c.acc, o = acc.opening, ins = c.all.filter(function(t){ return txFlow(t) > 0; }), outs = c.all.filter(function(t){ return txFlow(t) < 0; });
+  var before = [], other = [];
+  live('tx').forEach(function(t){
+    if (t.type === 'skip' || !txFlow(t) || t.date > rc.asOf || t.date < addDays(o.date, -62)) return;
+    var where = txAccountId(t);
+    if (where === acc.id && !inLedger(acc, t)) { if (t.date >= addDays(o.date, -31)) before.push(t); }
+    else if (where !== acc.id && t.date > o.date) other.push(t);
+  });
+  function row(label, v, sign, n){ return '<div class="row between" style="padding:4px 0"><span class="muted">' + label + (n != null ? ' <span class="tiny">(' + n + ')</span>' : '') + '</span><span>' + (sign || '') + fmtM(v) + '</span></div>'; }
+  var html = '<div class="card" id="rc-makeup"><h2>What Nestegg has for ' + esc(acc.name) + '</h2>' +
+    '<div class="row between" style="padding:4px 0"><span class="muted">Starting balance <span class="tiny">(you typed it, ' + (o.date === todayStr() ? 'today' : 'end of ' + esc(fmtDate(o.date))) + ')</span></span><span>' + fmtM(o.amount) + ' <button class="btn ghost sm" style="padding:2px 6px;min-height:0" data-act="rcOpening">Change</button></span></div>' +
+    row('+ Money in logged since', sum(ins, txFlow), '', ins.length) + row('− Money out logged since', -sum(outs, txFlow), '−', outs.length) +
+    '<div class="sep"></div><div class="row between strong" style="padding:4px 0"><span>Nestegg says</span><span>' + fmtM(c.W) + '</span></div>';
+  if (!c.all.length) html += '<div class="nudge gold" style="cursor:default;margin-top:8px"><div class="e">⚠️</div><div><div class="t" style="white-space:normal">Nothing logged on this account since the starting point</div><div class="small muted">So Nestegg\'s figure is just the balance you typed. ' +
+    (o.date >= currentPeriod() ? 'Start from an earlier date (like ' + esc(fmtDate(currentPeriod())) + ') so the entries you\'ve logged are compared.' : 'Log this account\'s spending and income, or move entries here (below).') +
+    '</div><button class="btn sm mt" data-act="rcOpening">Change the starting point</button></div></div>';
+  if (before.length) html += '<details class="mt"><summary class="small muted">' + before.length + ' entr' + (before.length === 1 ? 'y' : 'ies') + ' just before the starting point aren\'t counted</summary>' +
+    '<p class="tiny muted">They\'re already part of the starting balance. If they went off after it, change the starting point.</p>' + sortTx(before).slice(0, 30).map(txRow).join('') + '</details>';
+  if (other.length) {
+    var names = {}; other.forEach(function(t){ var a = account(txAccountId(t)); names[a ? a.name : 'no account'] = 1; });
+    html += '<details class="mt"' + (!c.all.length ? ' open' : '') + '><summary class="small muted">' + other.length + ' entr' + (other.length === 1 ? 'y is' : 'ies are') + ' on ' + esc(Object.keys(names).join(', ')) + ', not here</summary>' +
+      '<p class="tiny muted">Paid from ' + esc(acc.name) + ' after all? Tap "Here". Do you share one bank account? Delete the extra one and set this one to "Both" under Manage.</p>' +
+      sortTx(other).slice(0, 40).map(function(t){ return '<div class="row" style="gap:8px"><div style="flex:1;min-width:0">' + txRow(t) + '</div><button class="btn sm" data-act="rcHere" data-id="' + t.id + '">Here</button></div>'; }).join('') + '</details>';
+  }
+  return html + '</div>';
+}
+ACTIONS.rcOpening = function(){ var o = account(ui.rc.id).opening; openSheet('rcOpening', {date:addDays(o.date, 1), amount:String(o.amount)}); };
+SHEETS.rcOpening = function(sh){
+  var p = currentPeriod();
+  return '<h2>Starting point</h2><p class="small muted">The balance before a date. Everything logged on this account from that date on is added and taken off.</p>' +
+    '<div class="chips"><button class="chip" data-act="rcOpenDate" data-id="' + p + '">Start of ' + esc(periodName(p)) + ' (' + esc(fmtDate(p)) + ')</button><button class="chip" data-act="rcOpenDate" data-id="' + prevPeriodStart(p) + '">Start of ' + esc(periodName(prevPeriodStart(p))) + '</button></div>' +
+    '<label class="field mt"><span>Balance on the morning of</span><input class="input" type="date" id="f-opdate" value="' + sh.date + '" max="' + todayStr() + '"></label>' +
+    '<label class="field"><span>Balance then (from your statement or banking app history)</span><input class="input" id="f-opamt" inputmode="decimal" value="' + esc(sh.amount) + '"></label>' +
+    '<div class="btns"><button class="btn primary" data-act="rcOpenSave">Save</button></div>';
+};
+ACTIONS.rcOpenDate = function(el){ ui.sheet.amount = $('#f-opamt').value; ui.sheet.date = el.getAttribute('data-id'); renderSheet(); };
+ACTIONS.rcOpenSave = function(){
+  var d = $('#f-opdate').value, v = signedAmount($('#f-opamt').value);
+  if (!d || isNaN(v)) { toast('Fill in the date and the balance'); return; }
+  var a = Object.assign({}, account(ui.rc.id)); a.opening = {date:addDays(d, -1), amount:v, at:now()};
+  upsert('accounts', a); saveState(); closeSheet(); render(true); toast('Starting point changed');
+};
 function rcSummary(c, rc){
-  if (c.D === null) return rc.stmt ? '' : '<p class="small muted center">Nestegg will compare it with what your entries add up to.</p>';
-  var acc = c.acc, ok = Math.abs(c.D) < 0.005, html = '';
+  var html = rcMakeup(c, rc);
+  if (c.D === null) return html + (rc.stmt ? '' : '<p class="small muted center">Type what ' + bankWord(c.acc) + ' says to compare.</p>');
+  var acc = c.acc, ok = Math.abs(c.D) < 0.005;
   function row(label, v, cls, sign){ return '<div class="row between" style="padding:5px 0"><span class="' + (cls || 'muted') + '">' + label + '</span><span class="' + (cls || '') + '">' + (sign || '') + fmtM(v) + '</span></div>'; }
-  html += '<div class="card"><h2>2 · Compare</h2>' + row((acc.kind === 'cash' ? 'In your wallet' : 'The bank says'), c.X, 'strong') +
+  html += '<div class="card"><h2>Compare</h2>' + row((acc.kind === 'cash' ? 'In your wallet' : 'The bank says'), c.X, 'strong') +
     (c.pend.length ? row('+ Not through the bank yet (' + c.pend.length + ')', c.P, '', c.P >= 0 ? '' : '') : '') +
-    row('Nestegg says', c.W, 'strong') + '<div class="sep"></div>' +
+    row('Nestegg says (from your entries)', c.W, 'strong') + '<div class="sep"></div>' +
     '<div class="row between" id="rc-diff" style="padding:6px 0"><span class="strong">Difference</span><span class="strong ' + (ok ? 'pos' : 'neg') + '">' + (ok ? '✅ R0' : fmtM(c.D)) + '</span></div>' +
     (ok ? '<p class="small">They match. 🎉</p><button class="btn primary block" data-act="rcDone">Save this check</button>'
       : '<p class="small muted">' + (c.D < 0 ? 'Nestegg thinks there\'s ' + fmtM(-c.D) + ' more than ' + bankWord(acc) + ' has: usually something not logged yet, or logged twice.'
@@ -3225,9 +3270,9 @@ ACTIONS.rcBack = function(){ if (ui.rc && ui.rc.done) { ui.rc = null; ui.view = 
 function rcStartCard(rc, acc){
   var p = currentPeriod(), cash = acc.kind === 'cash';
   function opt(id, title, body){ return '<label class="ci" style="align-items:flex-start"><input type="radio" name="rcstart" data-change="rcStart" value="' + id + '"' + (rc.start === id ? ' checked' : '') + '><span><b>' + title + '</b><br><span class="small muted">' + body + '</span></span></label>'; }
-  var html = '<div class="card"><h2>Where should checking start?</h2><p class="small muted">Nestegg needs one balance to start from. After that, everything you log is added and taken off, and you can compare with ' + bankWord(acc) + ' any time.</p><div class="checklist">' +
-    opt('month', 'From the start of ' + esc(periodName(p)) + ' (' + esc(fmtDate(p)) + ')', 'Best if you\'ve logged everything since then. You\'ll see straight away whether Nestegg and ' + bankWord(acc) + ' agree.') +
-    opt('today', 'From today', 'Nothing to look up — type ' + (cash ? 'what\'s in your wallet' : 'today\'s balance') + '. Nestegg checks everything you log from now on.') +
+  var html = '<div class="card"><h2>Where should checking start?</h2><p class="small muted">Nestegg only knows what\'s been logged — not what was already in ' + bankWord(acc) + ' before. So it needs the balance on one day, once. From then on, Nestegg\'s figure is that balance plus everything you log, and you can compare it with ' + bankWord(acc) + ' any time.</p><div class="checklist">' +
+    opt('month', 'From the start of ' + esc(periodName(p)) + ' (' + esc(fmtDate(p)) + ')', 'Best if you\'ve logged everything since then. You\'ll see straight away whether your entries and ' + bankWord(acc) + ' agree.') +
+    opt('today', 'From today', 'Only for starting fresh: there\'s nothing to compare until you\'ve logged more. Type ' + (cash ? 'what\'s in your wallet' : 'today\'s balance') + '.') +
     (cash ? '' : opt('stmt', 'From a bank statement', 'Pick a statement (CSV or PDF). Nestegg takes its opening balance and matches every line with your entries.')) + '</div>';
   if (rc.start === 'stmt') html += '<label class="btn primary block mt" style="cursor:pointer">📄 Choose the statement<input type="file" accept=".csv,.txt,.pdf,text/csv,application/pdf" data-change="rcFile" class="hidden"></label>';
   else html += '<label class="field mt"><span>' + (rc.start === 'month' ? 'The balance on the morning of ' + esc(fmtDate(p, true)) + (cash ? '' : ' — on a statement, it\'s the balance just before that day\'s first line') : (cash ? 'Cash in your wallet now' : 'The balance right now')) + '</span>' +
