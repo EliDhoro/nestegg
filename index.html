@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029172749' // set by tools/build.py
+  BUILD: '20261029173509' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2928,8 +2928,11 @@ function aiProblem(detail){
   return 'Google\'s AI said: ' + d;
 }
 ACTIONS.aiSave = function(){
-  var k = ($('#ai-key').value || '').trim();
-  if (!/^[A-Za-z0-9_\-]{20,}$/.test(k)) { toast('Paste the whole key from AI Studio (it starts with AIza)'); return; }
+  var v = $('#ai-key').value || '';
+  // AI Studio's list shows keys shortened ("AIza…x7Qw"): copying that text isn't the key
+  if (/\.\.\.|…|\*{3}/.test(v)) { toast('That\'s the shortened key from the list. Click the key (or its 📋 Copy icon) in AI Studio and copy the full one.'); return; }
+  var k = v.replace(/[\s"'`​-‍⁠﻿]+/g, '');  // spaces, quotes or hidden characters picked up on the way
+  if (!/^[A-Za-z0-9_\-]{30,}$/.test(k)) { toast('That doesn\'t look like a whole key — it\'s about 39 letters and numbers, starting with AIza. Copy it again from AI Studio.'); return; }
   toast('Testing the key with Google…');
   Relay.call({action:'setGemini', gemini:k}).then(function(j){
     if (j.ok && j.ai) { device.aiOn = true; saveDevice(); toast('✨ AI reading is on'); render(); }
