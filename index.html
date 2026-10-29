@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029164533' // set by tools/build.py
+  BUILD: '20261029172749' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2913,7 +2913,8 @@ VIEWS.aiSetup = function(){
       '<button class="btn sm mt" data-act="openRelayUpdate">Show me how</button></div></div>' : '') +
     (device.aiOn ? '<button class="btn" data-act="aiOff">Turn AI reading off</button>' :
       step(1, 'Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account. Click <b>Create API key</b> and copy it. It\'s free — no card needed.') +
-      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="AIza…"></label><button class="btn primary" data-act="aiSave"' + (v < SCRIPT_VERSION ? ' disabled' : '') + '>Save and test it</button>')) +
+      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="AIza…"></label><button class="btn primary" data-act="aiSave">Save and test it</button>' +
+      (v < SCRIPT_VERSION ? '<p class="small neg mt">Your sync script is on version ' + v + '. It needs version ' + SCRIPT_VERSION + ' first — see the update above.</p>' : ''))) +
     '<p class="tiny muted mt">The key is kept in your own sync script, not in the app. On Google\'s free plan, what you send (the slip photo) may be used by Google to improve its services — it\'s the receipt only, never your bank details. Free daily limits are far more than a household needs.</p></div>';
   return html;
 };
@@ -2932,7 +2933,8 @@ ACTIONS.aiSave = function(){
   toast('Testing the key with Google…');
   Relay.call({action:'setGemini', gemini:k}).then(function(j){
     if (j.ok && j.ai) { device.aiOn = true; saveDevice(); toast('✨ AI reading is on'); render(); }
-    else toast(j.error === 'gemini' ? aiProblem(j.detail) : 'Your sync script needs the update first (step above).');
+    else if (j.error === 'gemini') toast(aiProblem(j.detail));
+    else { render(true); toast('Your sync script is still on version ' + (+j.version || 1) + ' — it needs version ' + SCRIPT_VERSION + ' (Deploy → Manage deployments → ✏️ → New version).'); }
   }).catch(function(e){ toast(e.message || String(e)); });
 };
 ACTIONS.aiOff = function(){
