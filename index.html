@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029173816' // set by tools/build.py
+  BUILD: '20261029211550' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2913,13 +2913,15 @@ VIEWS.aiSetup = function(){
       '<button class="btn sm mt" data-act="openRelayUpdate">Show me how</button></div></div>' : '') +
     (device.aiOn ? '<button class="btn" data-act="aiOff">Turn AI reading off</button>' :
       step(1, 'Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account. Click <b>Create API key</b> and copy it. It\'s free — no card needed.') +
-      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="Paste the key here"></label><button class="btn primary" data-act="aiSave">Save and test it</button>' +
+      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="Paste the key here"></label><button class="btn primary" data-act="aiSave"' + (ui.aiTesting ? ' disabled' : '') + '>Save and test it</button>' +
+      (ui.aiTesting ? '<p class="small mt"><span class="spinner"></span> Testing the key with Google… this can take up to 30 seconds. Keep this screen open.</p>' : '') +
+      (ui.aiMsg ? '<p class="small neg mt" id="ai-msg">' + esc(ui.aiMsg) + '</p>' : '') +
       (v < SCRIPT_VERSION ? '<p class="small neg mt">Your sync script is on version ' + v + '. It needs version ' + SCRIPT_VERSION + ' first — see the update above.</p>' : ''))) +
     '<p class="tiny muted mt">The key is kept in your own sync script, not in the app. On Google\'s free plan, what you send (the slip photo) may be used by Google to improve its services — it\'s the receipt only, never your bank details. Free daily limits are far more than a household needs.</p></div>';
   return html;
 };
 // asks the script for its version first, so a fresh update is noticed straight away
-ACTIONS.openAiSetup = function(){ openView('aiSetup'); Relay.call({action:'ping'}).then(function(){ if (ui.view === 'aiSetup') render(true); }).catch(function(){}); };
+ACTIONS.openAiSetup = function(){ ui.aiMsg = ''; openView('aiSetup'); Relay.call({action:'ping'}).then(function(){ if (ui.view === 'aiSetup') render(true); }).catch(function(){}); };
 function aiProblem(detail){
   var d = String(detail || '');
   if (/location|country|region|not supported/i.test(d)) return 'Google\'s AI isn\'t offered in your country on the free plan. Receipts will keep using the text reader.';
@@ -2933,12 +2935,15 @@ ACTIONS.aiSave = function(){
   if (/\.\.\.|…|\*{3}/.test(v)) { toast('That\'s the shortened key from the list. Click the key (or its 📋 Copy icon) in AI Studio and copy the full one.'); return; }
   var k = v.replace(/[\s"'`​-‍⁠﻿]+/g, '');  // spaces, quotes or hidden characters picked up on the way
   if (!/^[A-Za-z0-9_.\-]{30,}$/.test(k)) { toast('That doesn\'t look like a whole key — it\'s a long run of letters and numbers (newer keys start with AQ.). Copy it again from AI Studio.'); return; }
-  toast('Testing the key with Google…');
+  // the answer stays on the screen (a toast was gone before people looked)
+  function done(msg){ ui.aiTesting = false; ui.aiMsg = msg || ''; if (ui.view === 'aiSetup') { render(true); var f = $('#ai-key'); if (f && msg) f.value = v; } }
+  ui.aiTesting = true; ui.aiMsg = ''; render(true); $('#ai-key').value = v;
   Relay.call({action:'setGemini', gemini:k, models:AI_MODELS}).then(function(j){
-    if (j.ok && j.ai) { device.aiOn = true; saveDevice(); toast('✨ AI reading is on'); render(); }
-    else if (j.error === 'gemini') toast(aiProblem(j.detail));
-    else { render(true); toast('Your sync script is still on version ' + (+j.version || 1) + ' — it needs version ' + SCRIPT_VERSION + ' (Deploy → Manage deployments → ✏️ → New version).'); }
-  }).catch(function(e){ toast(e.message || String(e)); });
+    if (j.ok && j.ai) { device.aiOn = true; saveDevice(); done(''); toast('✨ AI reading is on'); }
+    else if (j.error === 'gemini') done(aiProblem(j.detail));
+    else if (+j.version < SCRIPT_VERSION) done('Your sync script is still on version ' + (+j.version || 1) + ' — it needs version ' + SCRIPT_VERSION + ' (Deploy → Manage deployments → ✏️ → New version).');
+    else done('The sync script answered: ' + (j.error || JSON.stringify(j)).slice(0, 200));
+  }).catch(function(e){ done(e.message || String(e)); });
 };
 ACTIONS.aiOff = function(){
   if (!confirmBox('Turn off AI reading? Receipts will use the text reader.')) return;
