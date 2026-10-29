@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261028091708' // set by tools/build.py
+  BUILD: '20261029164533' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2043,6 +2043,7 @@ VIEWS.settings = function(){
     html += '<p class="small">✅ Automatic sync is on' + (device.lastSync ? ' · last synced ' + timeAgo(device.lastSync) : '') + '</p>' +
       (device.syncError ? '<p class="small neg">' + esc(device.syncError) + '</p>' : '') +
       '<div class="btns"><button class="btn primary" data-act="syncNow">Sync now</button><button class="btn" data-act="showJoinCode">🔗 Share join code</button></div>' +
+      '<div class="li tap mt" data-act="openAiSetup"><div class="ico">✨</div><div class="main"><div class="t">Smarter receipt reading</div><div class="s">' + (device.aiOn ? 'On — Google\'s AI reads your slips' : 'Off — turn on Google\'s free AI') + '</div></div><span>›</span></div>' +
       (+device.relayVersion >= 2 ? '<p class="small mt">🧾 Receipt reading is on</p>' : '<div class="li tap mt" data-act="view" data-id="relayUpdate"><div class="ico">🧾</div><div class="main"><div class="t">Turn on receipt reading</div><div class="s">A 3-minute update to your sync script</div></div><span>›</span></div>') +
       '<div class="li tap mt" data-act="openCheck"><div class="ico">🩺</div><div class="main"><div class="t">Check sync &amp; receipts</div><div class="s">Runs the real checks and gives you a report</div></div><span>›</span></div>' +
       '<button class="btn ghost sm mt" data-act="relayDisconnect">Turn off sync on this device</button>';
@@ -2641,8 +2642,9 @@ function classifyItem(name, store){
 /* ---------- reading the text Google gives back ---------- */
 var R_AMOUNT = /(-)?\s*R?\s?(\d{1,3}(?:[ ,]\d{3})+|\d+)([.,]\d{2})\s*(-)?\s*[A-Z*#]{0,2}\s*$/i;
 var R_TOTAL = /\b(total|amount due|balance due|to pay|total due)\b/i;
-var R_NOT_ITEM = /\b(sub ?-?total|total|balance|amount due|tender(ed)?|change|cash|card|visa|master ?card|debit|credit|vat|tax|rounding|items? sold|no\.? of items|till|operator|cashier|tel|phone|reg no|auth|approved|account|acc no|ref|terminal|merchant|invoice|slip|zar|points|thank|welcome|return|exchange|pin|signature|customer|copy|date|time|trans|tran|seq|cell|www|http|@ ?[a-z]+\.co)\b/i;
+var R_NOT_ITEM = /\b(sub ?-?total|total|balance|amount due|tender(ed)?|change|cash|card|visa|master ?card|debit|credit|vat|tax|rounding|items?|item\(s\)|no\.? of items|till|operator|cashier|server|table|cover|tel|phone|reg no|auth|approved|account|acc no|ref|terminal|merchant|invoice|slip|zar|points|thank|welcome|return|exchange|pin|signature|customer|copy|date|time|trans|tran|doc|seq|cell|order|gst|chk|drive ?thru|exclusive|included|www|http|@ ?[a-z]+\.co)\b/i;
 var R_DISCOUNT = /\b(disc|discount|save|saving|savings|saved|promo|xtra savings|smart ?shopper|less|coupon|voucher|combo deal|multi ?buy|bonus|price cut|instant)\b/i;
+var R_PAY = /\b(card|cash|tender(ed)?|visa|master ?card|debit|credit|eft|snapscan|zapper|paid)\b/i;
 var R_QTY_LINE = /(^\s*\d+([.,]\d+)?\s*(x|@|kg|g|ea)\b)|@/i;
 function receiptAmount(m){
   var whole = m[2].replace(/[ ,]/g, ''), v = parseFloat(whole + '.' + m[3].slice(1));
@@ -2661,44 +2663,81 @@ function findDate(text){
   }
   return null;
 }
+function near(a, b){ return Math.abs(a - b) < 0.015; }
+// Which of these amounts, kept in order, add up to the total? Tries all of them, then the first few, then all but one
+// or two (a stray subtotal or tax line). Returns the indexes to keep, or null.
+function itemsAddingTo(amts, total){
+  var all = amts.map(function(_, i){ return i; }), s = sum(amts), run = 0, i, j;
+  if (near(s, total)) return all;
+  for (i = 0; i < amts.length; i++) { run += amts[i]; if (near(run, total)) return all.slice(0, i + 1); if (run > total + 0.02) break; }
+  for (i = 0; i < amts.length; i++) if (near(s - amts[i], total)) return all.filter(function(k){ return k !== i; });
+  for (i = 0; i < amts.length; i++) for (j = i + 1; j < amts.length; j++) if (near(s - amts[i] - amts[j], total)) return all.filter(function(k){ return k !== i && k !== j; });
+  return null;
+}
+// Reads Google's text of a till slip. It checks itself against the slip's own numbers: the items it keeps must add up
+// to what was paid, so subtotals, card lines, tax and stray text (order numbers, faint printing) fall away.
 function parseReceipt(text){
   var lines = String(text || '').split(/\r?\n/).map(function(l){ return l.replace(/\t/g, ' ').trim(); }).filter(Boolean);
-  var out = {store:'', date:findDate(text), items:[], total:null, method:null};
-  // the shop: a known name near the top, else the first line with letters
+  var out = {store:'', date:findDate(text), items:[], total:null, method:null, check:false};
   lines.slice(0, 8).forEach(function(l){ if (!out.store && storeKind(l)) out.store = cleanItemName(l); });
   if (!out.store) lines.some(function(l){ if (/[a-z]{3}/i.test(l) && !R_AMOUNT.test(l)) { out.store = cleanItemName(l); return true; } return false; });
   if (/\b(cash tendered|cash)\b/i.test(text) && !/\b(card|visa|master ?card|debit)\b/i.test(text)) out.method = 'cash';
   else if (/\b(card|visa|master ?card|debit|credit)\b/i.test(text)) out.method = 'card';
-  var pending = '', names = [], amounts = [];
-  lines.forEach(function(l){
+  var items = [], totals = [], subs = [], pays = [], all = [], alone = [], names = [], end = Infinity, pending = '';
+  lines.forEach(function(l, idx){
     var m = R_AMOUNT.exec(l);
     if (!m) {
-      // a line without a price: an item name waiting for its price on the next line (or in a column further down)
-      if (/^\s*[R-]?\s?\d[\d ,]*[.,]\d{2}\s*$/.test(l)) return;
-      if (/[a-z]{2}/i.test(l) && !R_NOT_ITEM.test(l) && !storeKind(l)) { pending = l; names.push(l); }
+      if (/[a-z]{2}/i.test(l) && !R_NOT_ITEM.test(l) && !storeKind(l) && !findDate(l)) { pending = l; names.push({t:l, i:idx}); }
+      else if (/\b(sub ?-?total|total|card|cash)\b/i.test(l) && end === Infinity) end = idx;  // the payment block, its amounts in another column
       return;
     }
     var amt = receiptAmount(m), name = l.slice(0, m.index).trim();
-    if (!/[a-z]{2}/i.test(name) && !R_QTY_LINE.test(name)) { amounts.push(amt); if (!name) return; }
+    all.push(Math.abs(amt));
+    if (!/[a-z]{2}/i.test(name) && !R_QTY_LINE.test(name) && (!name || /^[\d\s+\-x*#.:]*$/.test(name))) { alone.push({a:amt, i:idx}); return; }
+    if (/sub ?-?total/i.test(l)) { subs.push(Math.abs(amt)); end = Math.min(end, idx); return; }
     if (R_TOTAL.test(l)) {
       // "TOTAL SAVINGS" and "TOTAL VAT" are just information; of the real totals, the biggest is what was paid
-      if (!/sub ?-?total/i.test(l) && !R_DISCOUNT.test(l) && !/(vat|tax|items?)/i.test(l)) out.total = Math.max(out.total || 0, Math.abs(amt));
-      return;
+      if (!R_DISCOUNT.test(l) && !/\b(vat|tax|items?|exclusive)\b/i.test(l)) totals.push(Math.abs(amt));
+      end = Math.min(end, idx); return;
     }
+    if (R_PAY.test(l) && !R_DISCOUNT.test(l)) { pays.push(Math.abs(amt)); end = Math.min(end, idx); return; }
     if (R_NOT_ITEM.test(l) && !R_DISCOUNT.test(l)) return;
-    if (R_DISCOUNT.test(l) || amt < 0) { var last = out.items[out.items.length - 1]; if (last) last.amount = round2(last.amount - Math.abs(amt)); return; }
+    if (R_DISCOUNT.test(l) || amt < 0) { var last = items[items.length - 1]; if (last && idx < end) last.amount = round2(last.amount - Math.abs(amt)); return; }
     if (R_QTY_LINE.test(name) || !/[a-z]{2}/i.test(name)) { if (!pending) return; name = pending; } // "2 @ 34.99   69.98" or "0.856 KG @ 22.99/KG"
     pending = '';
-    if (names.length && names[names.length - 1] === name) names.pop();
-    out.items.push({name:cleanItemName(name), amount:round2(amt)});
+    if (names.length && names[names.length - 1].t === name) names.pop();
+    items.push({name:cleanItemName(name), amount:round2(amt), i:idx});
   });
-  // Google sometimes reads a narrow slip as two columns: all the names, then all the prices. Pair them up in order —
-  // the names nearest the prices (the top lines are the shop's address) with the first prices (a lone total comes last).
-  if (out.items.length < 2 && names.length >= 2 && amounts.length >= 2) {
-    var n = Math.min(names.length, amounts.length), ns = names.slice(names.length - n), as = amounts.slice(0, n);
-    out.items = ns.map(function(nm, i){ return {name:cleanItemName(nm), amount:round2(as[i])}; }).filter(function(x){ return x.amount > 0; });
+  items = items.filter(function(x){ return x.i < end; });
+  // what was paid: a real TOTAL line; else the card/cash line that matches a subtotal (cash handed over can be more);
+  // else the subtotal; else an amount printed more than once (subtotal and card both show it)
+  var paid = totals.length ? Math.max.apply(null, totals) : null;
+  if (paid === null && pays.length) paid = subs.filter(function(x){ return pays.some(function(y){ return near(x, y); }); })[0] || Math.min.apply(null, pays);
+  if (paid === null && subs.length) paid = Math.max.apply(null, subs);
+  if (paid === null) {
+    var seen = {}, rep = all.filter(function(a){ var k = a.toFixed(2); seen[k] = (seen[k] || 0) + 1; return seen[k] === 2; });
+    if (rep.length) paid = Math.max.apply(null, rep);
   }
-  if (out.total === null && out.items.length) out.total = round2(sum(out.items, function(x){ return x.amount; }));
+  if (items.length) {
+    var keep = paid === null ? items.map(function(_, i){ return i; }) : itemsAddingTo(items.map(function(x){ return x.amount; }), paid);
+    if (keep) items = keep.map(function(i){ return items[i]; });
+    else out.check = true;  // the items don't add up to what was paid: show them, and say so
+  }
+  // Google sometimes reads a narrow slip as two columns: all the names, then all the prices
+  if (!items.length && alone.length) {
+    var amts = alone.map(function(x){ return x.a; }).filter(function(a){ return a > 0; });
+    if (paid === null) paid = Math.max.apply(null, amts);
+    var keepA = itemsAddingTo(amts, paid);
+    if (keepA) {
+      var firstPrice = alone[0].i, ns = names.filter(function(x){ return x.i < firstPrice && x.i < end; }).map(function(x){ return x.t; }), n = keepA.length;
+      var kind = storeKind(out.store), named = ns.length >= n && !(kind && kind.only) ? ns.slice(ns.length - n) : null;
+      items = keepA.map(function(k, j){ return {name: named ? cleanItemName(named[j]) : (n === 1 ? out.store || 'Receipt' : (out.store || 'Item') + ' item ' + (j + 1)), amount:round2(amts[k])}; });
+    }
+  }
+  // still nothing that adds up: one line for what was paid, to check — never made-up lines
+  if (!items.length && paid !== null) { items = [{name:out.store || 'Receipt', amount:round2(paid)}]; out.check = true; out.single = true; }
+  out.items = items.map(function(x){ return {name:x.name, amount:x.amount}; });
+  out.total = paid !== null ? round2(paid) : (items.length ? round2(sum(items, function(x){ return x.amount; })) : null);
   return out;
 }
 
@@ -2717,6 +2756,37 @@ function shrinkPhoto(file){
     img.src = url;
   });
 }
+/* ---------- Google's Gemini AI (optional, through the household's script) ---------- */
+// The instructions travel with each photo, so they can be improved here without updating the script.
+function aiPrompt(){
+  var cats = liveCats().filter(function(c){ return c.group !== 'reward'; }).map(function(c){
+    var g = groupsList().filter(function(x){ return x.id === catGroup(c); })[0];
+    return c.id + ': ' + (g ? g.name + ' > ' : '') + c.name;
+  });
+  return 'You read photos of South African till slips and receipts. Reply with JSON only, in this shape: ' +
+    '{"store": shop name, "date": "YYYY-MM-DD" or null, "total": the amount actually paid, "method": "card" or "cash" or null, ' +
+    '"items": [{"name": the item as printed, "amount": what was paid for that line after any discount on it, "category": one id from the list below}]}. ' +
+    'Amounts are rand, as numbers like 12.99. The items must add up to the total. Leave out subtotals, totals, VAT or tax lines, change, cash handed over, ' +
+    'card or payment lines, loyalty points and savings summaries, order or transaction numbers, and any faint printing in the background of the paper. ' +
+    'A discount or savings line belongs to the item just above it: subtract it from that item. For weighed items and lines like "2 @ 9.99", use the line\'s total. ' +
+    'At a restaurant or takeaway every item is eating out. If the photo is not a receipt, reply {"items": []}. Categories (id: group > line):\n' + cats.join('\n');
+}
+// The AI's answer as review items; the household's own fixes (learned items) still win over the AI's choice of line
+function fromAI(ai){
+  if (!ai || ai.error || !ai.items || !ai.items.length) return null;
+  var store = String(ai.store || '').trim(), items = [];
+  ai.items.forEach(function(x){
+    var a = round2(+x.amount), name = String(x.name || '').trim() || 'Item';
+    if (!(a > 0)) return;
+    var key = itemKey(name), learned = null;
+    live('itemRules').forEach(function(r){ if (r.pattern === key && existingCat(r.categoryId)) learned = r.categoryId; });
+    items.push({name:cleanItemName(name), amount:a, cat: learned || existingCat(x.category) || classifyItem(name, store)});
+  });
+  if (!items.length) return null;
+  var total = +ai.total > 0 ? round2(+ai.total) : round2(sum(items, function(x){ return x.amount; }));
+  return {store:cleanItemName(store), date:/^\d{4}-\d{2}-\d{2}$/.test(ai.date || '') ? ai.date : null, total:total, items:items, ai:true,
+    method: ai.method === 'card' || ai.method === 'cash' ? ai.method : null, check: !near(sum(items, function(x){ return x.amount; }), total)};
+}
 ACTIONS.scanReceipt = function(){
   if (!Relay.ready()) { closeSheet(); openView('settings'); toast('Receipt reading uses your automatic sync — set that up first'); return; }
   var f = $('#receipt-file'); if (f) { f.value = ''; f.click(); }
@@ -2724,12 +2794,13 @@ ACTIONS.scanReceipt = function(){
 CHANGES.receiptFile = function(el){
   var file = el.files && el.files[0]; if (!file) return;
   openSheet('receipt', {stage:'reading'});
-  shrinkPhoto(file).then(function(b64){ return Relay.ocr(b64); }).then(function(text){
-    var r = parseReceipt(text);
-    if (!r.items.length) { ui.sheet = {type:'receipt', stage:'error', msg:'Couldn\'t find any items on that photo. Try again with the whole slip flat, in good light.', text:text}; renderSheet(); return; }
+  shrinkPhoto(file).then(function(b64){ return Relay.ocr(b64, aiPrompt()); }).then(function(j){
+    var r = fromAI(j.ai) || parseReceipt(j.text || ''), raw = j.text || (j.ai && !j.ai.error ? JSON.stringify(j.ai, null, 1) : '');
+    if (j.ai && j.ai.error) raw = '(AI couldn\'t read it: ' + j.ai.error + ')\n\n' + raw;
+    if (!r.items.length) { ui.sheet = {type:'receipt', stage:'error', msg:'Couldn\'t find any items on that photo. Try again with the whole slip flat, in good light.', raw:raw}; renderSheet(); return; }
     var date = r.date && r.date <= todayStr() && r.date > addDays(todayStr(), -400) ? r.date : todayStr();
-    ui.sheet = {type:'receipt', stage:'review', store:r.store, date:date, total:r.total, method:r.method || device.lastMethod || null,
-      items:r.items.map(function(x){ var c = classifyItem(x.name, r.store); return {name:x.name, amount:String(x.amount), cat:c, guess:c}; })};
+    ui.sheet = {type:'receipt', stage:'review', store:r.store, date:date, total:r.total, method:r.method || device.lastMethod || null, check:r.check, single:r.single, raw:raw, via:r.ai ? 'ai' : 'text',
+      items:r.items.map(function(x){ var c = x.cat || classifyItem(x.name, r.store); return {name:x.name, amount:String(x.amount), cat:c, guess:c}; })};
     renderSheet();
   }).catch(function(e){
     ui.sheet = {type:'receipt', stage: e.needsUpdate ? 'update' : 'error', msg:e.message || String(e)}; renderSheet();
@@ -2746,10 +2817,11 @@ SHEETS.receipt = function(sh){
   if (sh.stage === 'reading') return '<h2>🧾 Reading your receipt…</h2><div class="center" style="padding:28px 0"><div class="spinner"></div><p class="small muted mt">Google is reading the slip. This takes a few seconds.</p></div>';
   if (sh.stage === 'update') return '<h2>🧾 One quick update first</h2><p class="small">Your sync script needs a small update before it can read receipts. It takes about 3 minutes, once.</p>' +
     '<button class="btn primary block" data-act="openRelayUpdate">Show me how</button>';
-  if (sh.stage === 'error') return '<h2>🧾 Couldn\'t read that</h2><p class="small">' + esc(sh.msg) + '</p><div class="btns"><button class="btn primary" data-act="scanReceipt">Try another photo</button><button class="btn" data-act="closeSheet">Close</button></div>';
+  if (sh.stage === 'error') return '<h2>🧾 Couldn\'t read that</h2><p class="small">' + esc(sh.msg) + '</p><div class="btns"><button class="btn primary" data-act="scanReceipt">Try another photo</button><button class="btn" data-act="closeSheet">Close</button></div>' + rawBox(sh.raw);
   var cats = liveCats().filter(function(c){ return c.group !== 'reward'; }), lines = receiptLines(sh);
   var itemsTotal = round2(sum(lines, function(l){ return l.amount; })), diff = sh.total ? round2(sh.total - itemsTotal) : 0;
-  return '<h2>🧾 ' + esc(sh.store || 'Receipt') + '</h2>' +
+  return '<h2>🧾 ' + esc(sh.store || 'Receipt') + '</h2><p class="tiny muted" style="margin:-6px 0 8px">' + (sh.via === 'ai' ? '✨ Read by Google\'s AI' : 'Read by Google\'s text reader') + ' — check before saving</p>' +
+    (sh.single ? '<div class="nudge gold" style="cursor:default"><div class="e">🔎</div><div><div class="t">Couldn\'t tell the items apart</div><div class="small muted">So it\'s one line for what was paid. Pick its line, or add the items yourself.</div></div></div>' : '') +
     '<div class="row" style="gap:8px"><label class="field" style="flex:1;margin:0"><span>Date</span><input class="input" type="date" data-change="rcDate" value="' + sh.date + '"></label>' +
     '<label class="field" style="flex:1;margin:0"><span>Shop</span><input class="input" data-input="rcStore" value="' + esc(sh.store || '') + '"></label></div>' +
     '<div class="card mt" style="padding:10px 12px"><div class="small strong">' + fmtRc(itemsTotal) + ' on ' + lines.length + ' line' + (lines.length === 1 ? '' : 's') + '</div><div class="small muted">' +
@@ -2764,7 +2836,7 @@ SHEETS.receipt = function(sh){
     '<button class="btn sm mt" data-act="rcAdd">+ Add an item</button>' +
     '<div class="row small" style="gap:8px;margin:12px 0 4px;flex-wrap:wrap"><span class="muted">Paid with</span>' +
       METHODS.map(function(m){ return '<button class="chip ' + (sh.method === m[0] ? 'on' : '') + '" data-act="rcMethod" data-id="' + m[0] + '">' + m[1] + '</button>'; }).join('') + '</div>' +
-    '<div class="btns sticky-save"><button class="btn primary" data-act="rcSave">Save ' + fmtRc(itemsTotal) + '</button></div>';
+    rawBox(sh.raw) + '<div class="btns sticky-save"><button class="btn primary" data-act="rcSave">Save ' + fmtRc(itemsTotal) + '</button></div>';
 };
 function rcRefreshSummary(){ var y = $('.sheet') && $('.sheet').scrollTop; renderSheet(); if ($('.sheet')) $('.sheet').scrollTop = y; }
 INPUTS.rcName = function(el){ ui.sheet.items[+el.getAttribute('data-i')].name = el.value; };
@@ -2816,9 +2888,56 @@ VIEWS.relayUpdate = function(){
 };
 ACTIONS.relayCheck = function(){
   Relay.call({action:'ping'}).then(function(j){
-    if (+j.version >= 2) { toast('✅ Updated — receipt reading is ready'); ui.view = null; render(); }
+    if (+j.version >= SCRIPT_VERSION) { toast('✅ Updated to the newest script'); ui.view = null; render(); }
     else toast('Still the old script. Check step 4: Manage deployments → New version → Deploy.');
   }).catch(function(e){ toast(e.message || String(e)); });
+};
+
+// What Google actually returned, to see why a slip came out wrong (and to send to whoever is improving the reader)
+function rawBox(raw){
+  if (!raw) return '';
+  return '<details class="mt"><summary class="small muted">Show what Google read</summary><pre class="code" style="white-space:pre-wrap;font-size:11px;max-height:260px;overflow:auto">' + esc(raw) + '</pre>' +
+    '<button class="btn sm" data-act="copyRaw">📋 Copy it</button></details>';
+}
+ACTIONS.copyRaw = function(){ copyText(ui.sheet.raw || '', 'Copied — paste it to Claude'); };
+
+/* ---------- turning on Google's AI reading ---------- */
+// The key goes straight to the household's script (which tests it); this device doesn't keep it.
+VIEWS.aiSetup = function(){
+  var v = +device.relayVersion || 1;
+  function step(n, body){ return '<div class="row" style="gap:12px;align-items:flex-start;margin:12px 0"><span class="pill green">' + n + '</span><div class="small" style="flex:1">' + body + '</div></div>'; }
+  var html = topbar('Smarter receipt reading', 'Google\'s free AI reads your slips', {back:true, backAct:'toSettings', right:' '});
+  html += '<div class="card"><p class="small">' + (device.aiOn ? '✅ <b>On.</b> Slips are read by Google\'s AI, which copes with any layout. If it\'s ever unavailable, Nestegg uses the text reader instead.'
+      : 'Google\'s free Gemini AI reads a slip the way a person would — items, prices and which of your lines they belong to — so unusual layouts, faded print and abbreviations come out right far more often.') + '</p>' +
+    (v < SCRIPT_VERSION ? '<div class="nudge gold" style="cursor:default"><div class="e">⬆️</div><div><div class="t">First, update your sync script</div><div class="small muted">About 3 minutes, the same steps as last time.</div>' +
+      '<button class="btn sm mt" data-act="openRelayUpdate">Show me how</button></div></div>' : '') +
+    (device.aiOn ? '<button class="btn" data-act="aiOff">Turn AI reading off</button>' :
+      step(1, 'Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account. Click <b>Create API key</b> and copy it. It\'s free — no card needed.') +
+      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="AIza…"></label><button class="btn primary" data-act="aiSave"' + (v < SCRIPT_VERSION ? ' disabled' : '') + '>Save and test it</button>')) +
+    '<p class="tiny muted mt">The key is kept in your own sync script, not in the app. On Google\'s free plan, what you send (the slip photo) may be used by Google to improve its services — it\'s the receipt only, never your bank details. Free daily limits are far more than a household needs.</p></div>';
+  return html;
+};
+// asks the script for its version first, so a fresh update is noticed straight away
+ACTIONS.openAiSetup = function(){ openView('aiSetup'); Relay.call({action:'ping'}).then(function(){ if (ui.view === 'aiSetup') render(true); }).catch(function(){}); };
+function aiProblem(detail){
+  var d = String(detail || '');
+  if (/location|country|region|not supported/i.test(d)) return 'Google\'s AI isn\'t offered in your country on the free plan. Receipts will keep using the text reader.';
+  if (/api key not valid|invalid|API_KEY/i.test(d)) return 'Google says that key isn\'t valid. Copy it again from AI Studio — the whole thing, starting with AIza.';
+  if (/quota|rate|exhausted/i.test(d)) return 'Google\'s free limit is used up for now. Try again later.';
+  return 'Google\'s AI said: ' + d;
+}
+ACTIONS.aiSave = function(){
+  var k = ($('#ai-key').value || '').trim();
+  if (!/^[A-Za-z0-9_\-]{20,}$/.test(k)) { toast('Paste the whole key from AI Studio (it starts with AIza)'); return; }
+  toast('Testing the key with Google…');
+  Relay.call({action:'setGemini', gemini:k}).then(function(j){
+    if (j.ok && j.ai) { device.aiOn = true; saveDevice(); toast('✨ AI reading is on'); render(); }
+    else toast(j.error === 'gemini' ? aiProblem(j.detail) : 'Your sync script needs the update first (step above).');
+  }).catch(function(e){ toast(e.message || String(e)); });
+};
+ACTIONS.aiOff = function(){
+  if (!confirmBox('Turn off AI reading? Receipts will use the text reader.')) return;
+  Relay.call({action:'setGemini', gemini:''}).then(function(){ device.aiOn = false; saveDevice(); render(); toast('AI reading is off'); }).catch(function(e){ toast(e.message || String(e)); });
 };
 
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
@@ -2887,19 +3006,21 @@ var Drive = {
 // deploys this script (free) once; it keeps the data file in their Drive and serves it to devices that know the key.
 // No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
 // so a device that missed something merges first and tries again — nobody's changes get overwritten.
+var SCRIPT_VERSION = 3; // the newest RELAY_SCRIPT; keep in step with its VERSION line
 var RELAY_SCRIPT = [
   '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
   "var KEY = '%KEY%';",
   "var FILE = 'nestegg-household-data.json';",
-  'var VERSION = 2;',
+  'var VERSION = 3;',
   '',
   'function doGet(e) { return reply({ok: true, nestegg: true, version: VERSION}); }',
   'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} var out = handle(p); out.version = VERSION; return reply(out); }',
   '',
   'function handle(p) {',
   "  if (p.key !== KEY) return {ok: false, error: 'bad-key'};",
-  "  if (p.action === 'ping') return {ok: true};",
+  "  if (p.action === 'ping') return {ok: true, ai: !!PropertiesService.getScriptProperties().getProperty('gemini')};",
   "  if (p.action === 'ocr') return readReceipt(p);",
+  "  if (p.action === 'setGemini') return setGemini(p);",
   '  var lock = LockService.getScriptLock(); lock.waitLock(20000);',
   '  try {',
   "    var props = PropertiesService.getScriptProperties(), rev = Number(props.getProperty('rev') || 0), file = dataFile(props);",
@@ -2924,8 +3045,19 @@ var RELAY_SCRIPT = [
   '  return best;',
   '}',
   '',
-  '// Receipt photos: Google Drive reads the text into a temporary Doc, which is deleted straight away',
+  '// Receipt photos: Google\'s Gemini AI reads the slip when an AI key is saved; otherwise (or if that fails)',
+  '// Google Drive reads the text into a temporary Doc, which is deleted straight away',
   'function readReceipt(p) {',
+  "  var k = PropertiesService.getScriptProperties().getProperty('gemini'), ai = null;",
+  '  if (k && p.prompt) {',
+  "    var a = askGemini(k, [{text: p.prompt}, {inline_data: {mime_type: p.mime || 'image/jpeg', data: p.image}}]);",
+  '    if (a.json && a.json.items && a.json.items.length) return {ok: true, ai: a.json};',
+  "    ai = {error: a.error || 'no items'};",
+  '  }',
+  '  var t = readText(p); t.ai = ai; return t;',
+  '}',
+  '',
+  'function readText(p) {',
   "  var b = 'nestegg' + Date.now(), auth = {Authorization: 'Bearer ' + ScriptApp.getOAuthToken()};",
   "  var meta = JSON.stringify({name: 'nestegg-receipt', mimeType: 'application/vnd.google-apps.document'});",
   "  var head = '--' + b + '\\r\\nContent-Type: application/json; charset=UTF-8\\r\\n\\r\\n' + meta + '\\r\\n--' + b + '\\r\\nContent-Type: ' + (p.mime || 'image/jpeg') + '\\r\\n\\r\\n';",
@@ -2936,6 +3068,28 @@ var RELAY_SCRIPT = [
   '  try {',
   "    return {ok: true, text: UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id + '/export?mimeType=text/plain', {headers: auth}).getContentText()};",
   "  } finally { UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + id, {method: 'delete', headers: auth, muteHttpExceptions: true}); }",
+  '}',
+  '',
+  '// The free Gemini AI key is kept here in the script, never in the app. Checked with a tiny question before it\'s saved.',
+  'function setGemini(p) {',
+  "  var k = String(p.gemini || '').trim(), props = PropertiesService.getScriptProperties();",
+  "  if (!k) { props.deleteProperty('gemini'); return {ok: true, ai: false}; }",
+  "  var test = askGemini(k, [{text: 'Reply with this JSON: {\"ok\": true}'}]);",
+  "  if (test.error) return {ok: false, error: 'gemini', detail: test.error};",
+  "  props.setProperty('gemini', k); return {ok: true, ai: true};",
+  '}',
+  '',
+  'function askGemini(k, parts) {',
+  "  var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'], last = '';",
+  '  for (var i = 0; i < models.length; i++) {',
+  "    var r = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent?key=' + encodeURIComponent(k), {method: 'post',",
+  "      contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify({contents: [{parts: parts}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})});",
+  '    var code = r.getResponseCode(), body = r.getContentText();',
+  "    if (code === 404) { last = models[i] + ' is not available'; continue; }",
+  "    if (code >= 300) { try { return {error: JSON.parse(body).error.message}; } catch (x) { return {error: 'HTTP ' + code}; } }",
+  "    try { return {json: JSON.parse(JSON.parse(body).candidates[0].content.parts[0].text)}; } catch (x) { return {error: 'The AI gave an answer Nestegg could not read'}; }",
+  '  }',
+  '  return {error: last};',
   '}',
   '',
   '// Run this once from the editor (pick "authorize" next to Run, then press Run) so Google asks you to allow reading receipts',
@@ -2960,16 +3114,18 @@ var Relay = {
       .then(function(t){
         var j; try { j = JSON.parse(t); } catch(x){ throw new Error(scriptPageProblem(t)); }
         if (j.error === 'bad-key') throw new Error('This device\'s sync code doesn\'t match the script. Ask for a fresh join code.');
-        var v = +j.version || 1; if (device.relayVersion !== v) { device.relayVersion = v; saveDevice(); } // receipt reading needs 2
+        var v = +j.version || 1; if (device.relayVersion !== v) { device.relayVersion = v; saveDevice(); } // receipt reading needs 2, AI 3
+        if ('ai' in j && typeof j.ai === 'boolean' && device.aiOn !== j.ai) { device.aiOn = j.ai; saveDevice(); }
         return j;
       });
   },
   // A receipt photo (base64 JPEG) for Google to read; an older script answers without a version and gets an update prompt
-  ocr: function(b64){
-    return this.call({action:'ocr', image:b64, mime:'image/jpeg'}).then(function(j){
+  // Returns {text} from Google's text reading, and {ai} when the script's Gemini AI read it (version 3 with a key)
+  ocr: function(b64, prompt){
+    return this.call({action:'ocr', image:b64, mime:'image/jpeg', prompt:prompt || null}).then(function(j){
       if (!(+j.version >= 2)) { var e = new Error('The sync script needs a quick update to read receipts.'); e.needsUpdate = true; throw e; }
       if (!j.ok) throw new Error(j.error === 'ocr-failed' ? 'Google couldn\'t read that photo' + (/insufficient|scope|permission|auth/i.test(j.detail || '') ? ' — the script still needs your permission (step 3 of the update).' : '. Try again with the slip flat and well lit.') : 'Receipt reading problem: ' + (j.error || 'unknown'));
-      return j.text || '';
+      return j;
     });
   },
   pull: function(since){ return this.call({action:'get', since: since == null ? null : since}); },
@@ -3263,7 +3419,7 @@ ACTIONS.runCheck = function(){
   }).then(function(v){
     if (!(v >= 2)) return;
     var s4 = step('Reading a test slip with Google');
-    return Relay.ocr(testSlip()).then(function(text){
+    return Relay.ocr(testSlip()).then(function(j){ var text = j.text || '';
       var r = parseReceipt(text), ok = /12[.,]34/.test(text) && /23[.,]45/.test(text);
       set(s4, ok ? 'ok' : 'warn', ok ? 'Google read it: ' + r.items.length + ' items, total ' + fmtRc(r.total || 0) : 'Google answered but the text was off: "' + String(text).replace(/\s+/g, ' ').slice(0, 80) + '"');
     }).catch(function(e){ set(s4, 'bad', e.message || String(e)); });

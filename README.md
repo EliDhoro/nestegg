@@ -49,7 +49,7 @@ A small script in **your own Google account** keeps the data file in your Drive 
 3. Nestegg shows a **join code**. Send it to your own phone and your partner (WhatsApp is fine — only to each other: anyone with it can see your budget).
 4. **Every other device:** open Nestegg → **Join my partner's household** (or ⚙️ Settings → Sync → **I have a join code**) → paste the code → choose who's using it.
 
-**Receipt reading** uses the same script. If you set it up before 26 Oct 2026, it needs a 3-minute update first: ⚙️ Settings → Sync → **Turn on receipt reading**, and follow the steps (paste the new code, run *authorize* once, then *Manage deployments → New version*). Then tap **+ → 📷 Scan receipt**.
+**Receipt reading** uses the same script. If you set it up before 26 Oct 2026, it needs a 3-minute update first: ⚙️ Settings → Sync → **Turn on receipt reading**, and follow the steps (paste the new code, run *authorize* once, then *Manage deployments → New version*). Then tap **+ → 📷 Scan receipt**. For smarter reading, turn on Google's free AI: ⚙️ Settings → Sync → **Smarter receipt reading** (needs the script's version 3 and a free key from aistudio.google.com/apikey, kept in your script).
 
 From then on Nestegg syncs when it opens, a few seconds after every entry, when you switch back to it, and every minute and a half while it's open. If you'd already been syncing with Google Drive, the script picks up that same file, so nothing is lost.
 
