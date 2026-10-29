@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029232819' // set by tools/build.py
+  BUILD: '20261029234449' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -1307,9 +1307,9 @@ function inHandRow(p){
   if (!m.income && !m.carry) return '<div class="row between mt small" id="in-hand"><span class="muted">💵 In hand</span><span class="muted">Log your income when it comes in</span></div>';
   // the recon folds open under the line; open or closed is remembered on this device
   var open = !!device.inHandOpen;
-  function row(label, v, sign){ return '<div class="row between small" style="padding:3px 0"><span class="muted">' + label + '</span><span>' + (sign || '') + fmtR(v) + '</span></div>'; }
+  function row(label, v, sign){ return '<div class="row between small" style="padding:3px 0"><span class="muted">' + label + '</span><span>' + (sign || '') + fmtM(v) + '</span></div>'; }
   return '<div class="mt" id="in-hand" style="border-top:1px solid rgba(255,255,255,.15);padding-top:10px"><div class="row between tap" data-act="toggleInHand" style="cursor:pointer">' +
-    '<span class="small muted">💵 In hand from what came in ' + (open ? '▾' : '▸') + '</span><span class="strong ' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div>' +
+    '<span class="small muted">💵 In hand from what came in ' + (open ? '▾' : '▸') + '</span><span class="strong ' + (m.left < 0 ? 'neg' : '') + '">' + fmtM(m.left) + '</span></div>' +
     (!open ? '' : '<div id="in-hand-recon" style="margin-top:6px">' + (m.carry ? row('Brought forward', m.carry) : '') + row('Income received', m.income, '+') + row('Spent', m.spent, '−') + row('Moved to savings', m.saved, '−') +
       (m.left < 0 ? '<p class="small muted" style="margin:6px 0 0">More has gone out than has come in so far. If a payday hasn\'t been logged yet, add it with ＋ → Income.</p>' : '') +
       '<button class="btn sm mt" style="background:rgba(255,255,255,.15);color:#fff" data-act="compareBank">🔎 Compare with the bank</button></div>') + '</div>';
@@ -3103,7 +3103,8 @@ function accountsCard(){
   if (!as.length) return '<div class="card"><h2>🏦 Your accounts</h2><p class="small muted">Check that Nestegg matches your bank: tell it which accounts you have, then compare the balances whenever you like. Any difference is tracked down step by step.</p>' +
     '<button class="btn primary block" data-act="accQuick">Set up our accounts</button></div>';
   return '<div class="card"><div class="row between"><h2>🏦 Your accounts</h2><button class="btn ghost sm" data-act="view" data-id="accounts">Manage</button></div>' +
-    as.map(accountRow).join('') + '<p class="tiny muted mt">The amount is what Nestegg works out from your entries. Tap an account to compare it with the bank.</p></div>';
+    '<button class="btn primary block" data-act="compareBank" style="margin:4px 0 8px">🔎 Check our money — In hand vs all accounts</button>' +
+    as.map(accountRow).join('') + '<p class="tiny muted mt">The amount is what Nestegg works out from your entries. Tap an account to compare just that one with the bank.</p></div>';
 }
 function accountRow(a){
   var lr = lastRecon(a.id), status = !a.opening ? '<span class="pill gold">Not checked yet</span>' : lr ? '<span class="pill ' + (daysBetween(lr.on || lr.asOf, todayStr()) > 14 ? 'gold' : 'green') + '">✓ Checked ' + esc(fmtDate(lr.on || lr.asOf)) + '</span>' : '<span class="pill gold">Started ' + esc(fmtDate(a.opening.date)) + '</span>';
@@ -3117,12 +3118,8 @@ ACTIONS.accQuick = function(){
   upsert('accounts', {id:'a-' + uid(), name:'Cash', emoji:'💵', kind:'cash', memberId:null, main:false, opening:null, order:i++, createdAt:t + i});
   saveState(); openView('accounts'); toast('Rename them to match your banks, e.g. FNB or GoTyme');
 };
-// Home → Compare with the bank: straight to checking your own account (setting the accounts up first if needed)
-ACTIONS.compareBank = function(){
-  if (!accounts().length) { ACTIONS.accQuick(); clearCache(); }
-  var id = defaultAccountFor(me().id, 'card') || accounts()[0].id;
-  ui.rc = {id:id, bank:'', asOf:todayStr(), stmt:null, list:false, start:'month'}; openView('recon');
-};
+// Home → In hand → Compare with the bank: the In hand figure itself against everything you actually have (all accounts + cash)
+ACTIONS.compareBank = function(){ closeSheet(); ui.rc = {id:'all', bank:'', parts:{}, asOf:todayStr(), stmt:null, list:false}; openView('recon'); };
 VIEWS.accounts = function(){
   var html = topbar('Your accounts', 'Bank accounts and cash', {back:true, right:' '}), as = accounts();
   if (!as.length) return html + '<div class="card"><div class="empty"><span class="e">🏦</span>No accounts yet.<br><button class="btn primary mt" data-act="accQuick">Set up our accounts</button></div></div>';
@@ -3178,14 +3175,63 @@ ACTIONS.openRecon = function(el){
   if (!a) { ACTIONS.accQuick(); return; }
   closeSheet(); ui.rc = {id:a.id, bank:'', asOf:todayStr(), stmt:null, list:false, start:'month'}; openView('recon');
 };
+/* ---------- the whole household: Home's In hand vs what's really in your accounts ---------- */
+// In hand = brought forward + income received − spent − moved to savings, this budget month (inHand in 02-calc.js).
+// Moving money between your own accounts doesn't change it, so transfers don't count here.
+function handFlow(t){
+  var a = +t.amount || 0;
+  if (t.type === 'income') return a;
+  if (t.type === 'expense') return t.categoryId === 'c-reward' ? 0 : -a;
+  if (t.type === 'saving') return -a;
+  return 0;
+}
+function rcCalcAll(rc){
+  var p = currentPeriod(), s = periodSummary(p), m = inHand(p), all = s.txs.filter(function(t){ return handFlow(t) !== 0; });
+  var pend = all.filter(function(t){ return t.pending; }), P = round2(sum(pend, handFlow)), X = signedAmount(rc.bank);
+  return {household:true, flow:handFlow, s:s, m:m, acc:{id:'all', name:'your accounts', kind:'bank', opening:{date:addDays(p, -1), amount:m.carry}},
+    all:all, open:all, pend:pend, W:m.left, P:P, X:X, D:isNaN(X) || String(rc.bank).trim() === '' ? null : round2(X + P - m.left)};
+}
+function viewReconAll(rc){
+  var p = currentPeriod(), as = accounts(), html = topbar('Check our money', 'Nestegg\'s In hand vs your accounts', {back:true, backAct:'rcBack', right:' '});
+  if (rc.done) return html + rcDoneCard(rc);
+  html += '<div class="card"><h2>1 · What do you actually have?</h2><p class="small muted">Open your banking app' + (members().length > 1 ? 's' : '') + ' and type the <b>available balance</b> of each account' + (as.some(function(a){ return a.kind === 'cash'; }) ? ', and count your cash' : '') +
+    '. Leave out savings pockets and accounts you don\'t spend from.</p>' +
+    (as.length ? as.map(function(a){ return '<label class="field"><span>' + esc(accountLabel(a)) + '</span><input class="input" inputmode="decimal" data-input="rcPart" data-id="' + a.id + '" placeholder="0.00" value="' + esc(rc.parts[a.id] || '') + '"></label>'; }).join('') +
+      '<p class="small muted">Other accounts too? <button class="btn ghost sm" data-act="view" data-id="accounts">Add them</button></p>'
+      : '<label class="field"><span>All your bank accounts and cash, added together</span><input class="input" id="f-rcbank" inputmode="decimal" data-input="rcBank" placeholder="e.g. 18 273.00" value="' + esc(rc.bank) + '"></label>') + '</div>';
+  return html + '<div id="rc-sum">' + rcSummary(rcCalc(rc), rc) + '</div>';
+}
+INPUTS.rcPart = function(el){
+  var rc = ui.rc, tot = 0, any = false; rc.parts[el.getAttribute('data-id')] = el.value;
+  Object.keys(rc.parts).forEach(function(k){ var v = signedAmount(rc.parts[k]); if (String(rc.parts[k]).trim() !== '' && !isNaN(v)) { tot += v; any = true; } });
+  rc.bank = any ? String(round2(tot)) : ''; clearCache(); var box = $('#rc-sum'); if (box) box.innerHTML = rcSummary(rcCalc(rc), rc);
+};
+function rcMakeupAll(c){
+  var p = currentPeriod(), m = c.m, s = c.s;
+  function row(label, v, sign, n){ return '<div class="row between" style="padding:4px 0"><span class="muted">' + label + (n != null ? ' <span class="tiny">(' + n + ')</span>' : '') + '</span><span>' + (sign || '') + fmtM(v) + '</span></div>'; }
+  function n(f){ return s.txs.filter(f).length; }
+  var html = '<div class="card" id="rc-makeup"><h2>Nestegg\'s In hand · ' + esc(periodName(p)) + '</h2>' +
+    '<div class="row between" style="padding:4px 0"><span class="muted">Brought forward <span class="tiny">(before ' + esc(fmtDate(p)) + ')</span></span><span>' + fmtM(m.carry) + ' <button class="btn ghost sm" style="padding:2px 6px;min-height:0" data-act="rcCarry">Change</button></span></div>' +
+    row('+ Income received', m.income, '+', n(function(t){ return t.type === 'income'; })) + row('− Spent', m.spent, '−', n(function(t){ return t.type === 'expense' && t.categoryId !== 'c-reward'; })) +
+    row('− Moved to savings', m.saved, '−', n(function(t){ return t.type === 'saving'; })) +
+    '<div class="sep"></div><div class="row between strong" style="padding:4px 0"><span>In hand</span><span>' + fmtM(m.left) + '</span></div>' +
+    '<p class="tiny muted">The same figure as on Home, worked out only from what you\'ve logged since ' + esc(fmtDate(p)) + '.</p>';
+  if (!m.carry && state.household.carryOver !== false) html += '<div class="nudge gold" style="cursor:default;margin-top:8px"><div class="e">💡</div><div><div class="t" style="white-space:normal">Money from before ' + esc(fmtDate(p)) + ' isn\'t in this figure</div>' +
+    '<div class="small muted">Whatever was already in your accounts on the morning of ' + esc(fmtDate(p)) + ' is in the bank but not in Nestegg. Set it as <b>Brought forward</b> — like Balance B/D on your sheet.</div><button class="btn sm mt" data-act="rcCarry">Set brought forward</button></div></div>';
+  return html + '</div>';
+}
+ACTIONS.rcCarry = function(){ openSheet('carry', {key:periodKeyFor(currentPeriod())}); };
 function rcCalc(rc){
+  if (rc.id === 'all') return rcCalcAll(rc);
   var acc = account(rc.id), asOf = rc.asOf, all = ledger(acc, asOf), open = all.filter(function(t){ return !t.reconId; });
   var pend = open.filter(function(t){ return t.pending; }), W = bookBalance(acc, asOf), P = round2(sum(pend, txFlow)), X = signedAmount(rc.bank);
   return {acc:acc, all:all, open:open, pend:pend, W:W, P:P, X:X, D:isNaN(X) || String(rc.bank).trim() === '' ? null : round2(X + P - W)};
 }
 function bankWord(acc){ return acc.kind === 'cash' ? 'your wallet' : 'the bank'; }
 VIEWS.recon = function(){
-  var rc = ui.rc, acc = rc && account(rc.id);
+  var rc = ui.rc;
+  if (rc && rc.id === 'all') return viewReconAll(rc);
+  var acc = rc && account(rc.id);
   if (!acc) { ui.view = null; return viewMain(); }
   var lr = lastRecon(acc.id), html = topbar('Check ' + esc(acc.name), lr ? 'Last checked ' + esc(fmtDate(lr.on || lr.asOf, true)) : acc.opening ? 'Not checked yet' : 'Set a starting point', {back:true, backAct:'rcBack', right:' '});
   if (rc.done) return html + rcDoneCard(rc);
@@ -3247,13 +3293,13 @@ ACTIONS.rcOpenSave = function(){
   upsert('accounts', a); saveState(); closeSheet(); render(true); toast('Starting point changed');
 };
 function rcSummary(c, rc){
-  var html = rcMakeup(c, rc);
-  if (c.D === null) return html + (rc.stmt ? '' : '<p class="small muted center">Type what ' + bankWord(c.acc) + ' says to compare.</p>');
+  var html = c.household ? rcMakeupAll(c) : rcMakeup(c, rc);
+  if (c.D === null) return html + (rc.stmt ? '' : '<p class="small muted center">Type what ' + (c.household ? 'your accounts say' : bankWord(c.acc) + ' says') + ' to compare.</p>');
   var acc = c.acc, ok = Math.abs(c.D) < 0.005;
   function row(label, v, cls, sign){ return '<div class="row between" style="padding:5px 0"><span class="' + (cls || 'muted') + '">' + label + '</span><span class="' + (cls || '') + '">' + (sign || '') + fmtM(v) + '</span></div>'; }
-  html += '<div class="card"><h2>Compare</h2>' + row((acc.kind === 'cash' ? 'In your wallet' : 'The bank says'), c.X, 'strong') +
+  html += '<div class="card"><h2>Compare</h2>' + row(c.household ? 'You actually have' : acc.kind === 'cash' ? 'In your wallet' : 'The bank says', c.X, 'strong') +
     (c.pend.length ? row('+ Not through the bank yet (' + c.pend.length + ')', c.P, '', c.P >= 0 ? '' : '') : '') +
-    row('Nestegg says (from your entries)', c.W, 'strong') + '<div class="sep"></div>' +
+    row(c.household ? 'Nestegg In hand' : 'Nestegg says (from your entries)', c.W, 'strong') + '<div class="sep"></div>' +
     '<div class="row between" id="rc-diff" style="padding:6px 0"><span class="strong">Difference</span><span class="strong ' + (ok ? 'pos' : 'neg') + '">' + (ok ? '✅ R0' : fmtM(c.D)) + '</span></div>' +
     (ok ? '<p class="small">They match. 🎉</p><button class="btn primary block" data-act="rcDone">Save this check</button>'
       : '<p class="small muted">' + (c.D < 0 ? 'Nestegg thinks there\'s ' + fmtM(-c.D) + ' more than ' + bankWord(acc) + ' has: usually something not logged yet, or logged twice.'
@@ -3293,40 +3339,49 @@ ACTIONS.rcSetStart = function(){
 /* ---------- step 3: finding the difference ---------- */
 // Likely reasons, each with a fix. d = bank − Nestegg (after what's still on its way).
 function rcHints(c, rc){
-  var acc = c.acc, out = [], dC = cents(c.D), cand = c.open.filter(function(t){ return !t.pending; }), seen = {};
+  var acc = c.acc, out = [], dC = cents(c.D), cand = c.open.filter(function(t){ return !t.pending; }), seen = {}, F = c.flow || txFlow;
   function push(h){ var k = h.k + (h.t ? h.t.id : ''); if (!seen[k]) { seen[k] = 1; out.push(h); } }
+  if (c.household) {
+    // the whole household: a payday not logged yet, or money from before the month that isn't brought forward
+    var s = c.s;
+    incomeLines().forEach(function(l){ var m = member(l.memberId);
+      var logged = s.txs.some(function(t){ return t.type === 'income' && t.memberId === l.memberId && cents(t.amount) === cents(l.amount); });
+      if (c.D > 0 && !logged && cents(l.amount) === dC) push({k:'inc' + l.id, e:'💰', title:(m ? m.name + '\'s ' : '') + l.name + ' — ' + fmtM(l.amount) + ' not logged?', sub:'It\'s exactly the difference. If it came in, log it as income.', acts:['moneyIn']}); });
+    if (c.D > 0 && s.income < s.expectedIncome) push({k:'incomeLeft', e:'💰', title:'Income not all logged', sub:'You expect ' + fmtM(s.expectedIncome) + ' this month and ' + fmtM(s.income) + ' is logged. Log any pay that has come in.', acts:['moneyIn']});
+    if (!c.m.carry && c.D > 0) push({k:'bf', e:'↪️', title:'Money from before ' + fmtDate(currentPeriod()) + '?', sub:'Your accounts still hold what was there before this budget month. Set Brought forward to that total and the difference shrinks by the same amount.', acts:['carry']});
+  }
   // entries already checked last time have since been changed or deleted
-  var lr = lastRecon(acc.id);
+  var lr = !c.household && lastRecon(acc.id);
   if (lr) {
     var was = state.tx.filter(function(t){ var r = t.reconId && byId('recons', t.reconId); return r && r.accountId === acc.id && (t.updatedAt || 0) > (lr.at || 0); });
     var nowChecked = round2((+acc.opening.amount || 0) + sum(ledger(acc).filter(function(t){ return t.reconId; }), txFlow));
     if (cents(nowChecked) !== cents(lr.bank) && was.length) push({k:'changed', e:'✏️', title:'Changed since your last check', sub:'Entries you already checked on ' + fmtDate(lr.on || lr.asOf) + ' were edited or deleted since (' + fmtM(round2(nowChecked - lr.bank)) + ' in total). Were those changes right?', list:was});
   }
   // one entry explains it all
-  cand.forEach(function(t){ if (cents(txFlow(t)) === -dC) push({k:'one', t:t, e:'🎯', title:fmtM(Math.abs(txFlow(t))) + ' — ' + txTitle(t) + ' (' + fmtDate(t.date) + ')', sub:'This entry is exactly the difference. Not through ' + bankWord(acc) + ' yet, entered twice, or from another account?', acts:['wait', 'del', 'move']}); });
+  cand.forEach(function(t){ if (cents(F(t)) === -dC) push({k:'one', t:t, e:'🎯', title:fmtM(Math.abs(F(t))) + ' — ' + txTitle(t) + ' (' + fmtDate(t.date) + ')', sub:'This entry is exactly the difference. Not through ' + bankWord(acc) + ' yet, entered twice, or from another account?', acts:['wait', 'del', 'move']}); });
   // logged as money out when it came in (or the other way round)
-  cand.forEach(function(t){ if (t.type !== 'income' && cents(txFlow(t)) * 2 === -dC) push({k:'flip', t:t, e:'🔁', title:txTitle(t) + ' — ' + fmtM(Math.abs(txFlow(t))), sub:txFlow(t) < 0 ? 'Logged as money out. Was it money coming in (a refund)?' : 'Logged as money in. Did it actually go out?', acts:['flip']}); });
+  cand.forEach(function(t){ if (t.type !== 'income' && (!c.household || t.type === 'expense') && cents(F(t)) * 2 === -dC) push({k:'flip', t:t, e:'🔁', title:txTitle(t) + ' — ' + fmtM(Math.abs(F(t))), sub:F(t) < 0 ? 'Logged as money out. Was it money coming in (a refund)?' : 'Logged as money in. Did it actually go out?', acts:['flip']}); });
   // a typing slip: two digits swapped, or a 0 too many / too few
   cand.forEach(function(t){
     var a = Math.abs(+t.amount), s = String(cents(a)), opts = [a * 10, a / 10];
     for (var i = 0; i < s.length - 1; i++) if (s[i] !== s[i + 1]) opts.push(+(s.slice(0, i) + s[i + 1] + s[i] + s.slice(i + 2)) / 100);
     opts.forEach(function(b){
       b = round2(b); if (b <= 0 || cents(b) === cents(a)) return;
-      var f = txFlow(t), f2 = f * b / a;
+      var f = F(t), f2 = f * b / a;
       if (cents(f) - cents(f2) === -dC) push({k:'typo', t:t, to:b, e:'⌨️', title:txTitle(t) + ': ' + fmtM(a) + ' or ' + fmtM(b) + '?', sub:'A typing slip would explain the difference exactly.', acts:['amt']});
     });
   });
   // two entries together
   if (!out.some(function(h){ return h.k === 'one'; }) && cand.length <= 250) {
     for (var i = 0; i < cand.length && out.length < 8; i++) for (var j = i + 1; j < cand.length; j++) {
-      if (cents(txFlow(cand[i])) + cents(txFlow(cand[j])) === -dC) { push({k:'two', e:'🧩', title:'Two entries add up to the difference', sub:'Not through ' + bankWord(acc) + ' yet?', list:[cand[i], cand[j]], acts:['waitAll']}); break; }
+      if (cents(F(cand[i])) + cents(F(cand[j])) === -dC) { push({k:'two', e:'🧩', title:'Two entries add up to the difference', sub:'Not through ' + bankWord(acc) + ' yet?', list:[cand[i], cand[j]], acts:['waitAll']}); break; }
     }
   }
   // logged under another account (or as cash)
-  live('tx').forEach(function(t){
+  if (!c.household) live('tx').forEach(function(t){
     var other = txAccountId(t);
     if (t.reconId || other === acc.id || t.type === 'skip' || t.date > rc.asOf || t.date <= acc.opening.date) return;
-    if (cents(txFlow(t)) === dC) push({k:'move', t:t, e:'🔀', title:txTitle(t) + ' — ' + fmtM(Math.abs(txFlow(t))) + ' (' + fmtDate(t.date) + ')', sub:'It\'s under ' + (other ? account(other).name : 'cash') + '. Was it really ' + acc.name + '?', acts:['here']});
+    if (cents(F(t)) === dC) push({k:'move', t:t, e:'🔀', title:txTitle(t) + ' — ' + fmtM(Math.abs(F(t))) + ' (' + fmtDate(t.date) + ')', sub:'It\'s under ' + (other ? account(other).name : 'cash') + '. Was it really ' + acc.name + '?', acts:['here']});
   });
   // entered twice
   for (var a = 0; a < cand.length; a++) for (var b2 = a + 1; b2 < cand.length; b2++) {
@@ -3348,7 +3403,7 @@ function hintHtml(h){
     if (a === 'waitAll') return '<button class="btn sm" data-act="rcWaitAll" data-ids="' + h.list.map(function(x){ return x.id; }).join(' ') + '">⏳ Both not through yet</button>';
     return {wait:btn('rcWait', '⏳ Not through yet'), del:btn('rcDel', '🗑 Delete', 'ghost'), move:btn('rcMoveOpen', '🔀 Other account', 'ghost'), flip:btn('rcFlip', '🔁 Swap in/out'),
       amt:btn('rcAmt', 'Make it ' + fmtM(h.to || 0)), here:btn('rcHere', 'Move it here'), fees:btn('rcFees', '+ Add bank fees'), moneyIn:btn('rcMoneyIn', '+ Add money in'),
-      'in':btn('rcDirIn', 'Money in'), out:btn('rcDirOut', 'Money out')}[a];
+      'in':btn('rcDirIn', 'Money in'), out:btn('rcDirOut', 'Money out'), carry:btn('rcCarry', '↪️ Set brought forward')}[a];
   }).join('');
   return '<div class="nudge" style="cursor:default;align-items:flex-start"><div class="e">' + h.e + '</div><div style="flex:1;min-width:0"><div class="t" style="white-space:normal">' + esc(h.title) + '</div><div class="small muted">' + esc(h.sub) + '</div>' +
     (h.list ? '<div class="list mt">' + h.list.map(function(x){ return x.deleted ? '<div class="li"><div class="ico">🗑</div><div class="main"><div class="t">' + esc(txTitle(x)) + '</div><div class="s">Deleted · ' + esc(fmtDate(x.date)) + '</div></div>' + txAmount(x) + '<button class="btn sm ghost" data-act="rcUndel" data-id="' + x.id + '">Bring back</button></div>' : txRow(x); }).join('') + '</div>' : '') +
@@ -3360,9 +3415,11 @@ function findCard(c, rc){
     (hints.length ? '<p class="small muted">Most likely first:</p>' + hints.slice(0, 6).map(hintHtml).join('') : '<p class="small muted">No single entry explains it. Go through the entries below and mark anything ' + bankWord(acc) + ' doesn\'t show yet' + (acc.kind === 'cash' ? '' : ', or use a statement to match every line automatically') + '.</p>') +
     '<div class="small strong mt">Something ' + bankWord(acc) + ' shows that isn\'t in Nestegg?</div><div class="btns" style="flex-wrap:wrap;margin-top:6px">' +
     '<button class="btn sm" data-act="rcAddOut">− Money out</button><button class="btn sm" data-act="rcMoneyIn">+ Money in</button>' +
-    (acc.kind === 'cash' ? '' : '<button class="btn sm" data-act="rcCashOpen">🏧 Cash withdrawal</button><button class="btn sm" data-act="rcFees">🏦 Bank fees</button>') + '</div>' +
-    '<details class="mt"><summary class="small muted">Still can\'t find it?</summary><p class="small muted">Record the ' + fmtM(Math.abs(c.D)) + ' as a balance adjustment so the next check starts clean. It doesn\'t count as spending or income, and it stays in Activity so you can see it later.</p>' +
-    '<button class="btn sm" data-act="rcAdjust">⚖️ Record the difference</button></details></div>';
+    (acc.kind === 'cash' ? '' : (c.household ? '' : '<button class="btn sm" data-act="rcCashOpen">🏧 Cash withdrawal</button>') + '<button class="btn sm" data-act="rcFees">🏦 Bank fees</button>') + '</div>' +
+    (c.household ? '<details class="mt"><summary class="small muted">Still can\'t find it?</summary><p class="small muted">Check each account on its own (Wealth → Your accounts): it narrows the difference down to one account, and a statement can be matched line by line there.</p>' +
+      '<button class="btn sm" data-act="view" data-id="accounts">Check one account</button></details></div>'
+    : '<details class="mt"><summary class="small muted">Still can\'t find it?</summary><p class="small muted">Record the ' + fmtM(Math.abs(c.D)) + ' as a balance adjustment so the next check starts clean. It doesn\'t count as spending or income, and it stays in Activity so you can see it later.</p>' +
+    '<button class="btn sm" data-act="rcAdjust">⚖️ Record the difference</button></details></div>');
 }
 // The entries being compared: tick off what the bank shows
 function entriesCard(c, rc){
@@ -3401,7 +3458,7 @@ ACTIONS.rcMoveTo = function(el){
 function rcGap(){ var c = rcCalc(ui.rc); return c.D === null ? 0 : Math.abs(c.D); }
 function rcAddAs(opts){
   var c = rcCalc(ui.rc), acc = c.acc;
-  openAdd(Object.assign({date:ui.rc.asOf > todayStr() ? todayStr() : ui.rc.asOf, accountId:acc.id, method:acc.kind === 'cash' ? 'cash' : null, memberId:acc.memberId || me().id}, opts));
+  openAdd(Object.assign({date:ui.rc.asOf > todayStr() ? todayStr() : ui.rc.asOf, accountId:c.household ? null : acc.id, method:acc.kind === 'cash' ? 'cash' : null, memberId:acc.memberId || me().id}, opts));
 }
 ACTIONS.rcAddOut = function(){ rcAddAs({type:'expense', amount:rcCalc(ui.rc).D < 0 ? rcGap() : ''}); };
 ACTIONS.rcMoneyIn = function(){ rcAddAs({type:'income', amount:rcCalc(ui.rc).D > 0 ? rcGap() : ''}); };
@@ -3434,12 +3491,14 @@ ACTIONS.rcAdjust = function(){
 ACTIONS.rcDone = function(){
   var rc = ui.rc, c = rcCalc(rc); if (c.D === null || Math.abs(c.D) >= 0.005) return;
   var before = snapshot(), id = 'r-' + uid(), adj = sum(c.open.filter(function(t){ return t.type === 'adjust'; }), function(t){ return t.amount; });
-  c.open.forEach(function(t){ if (!t.pending) { var x = Object.assign({}, t); x.reconId = id; upsert('tx', x); } });
+  // an account check marks its entries as checked; the whole-household check only records that it matched
+  if (!c.household) c.open.forEach(function(t){ if (!t.pending) { var x = Object.assign({}, t); x.reconId = id; upsert('tx', x); } });
   upsert('recons', {id:id, accountId:c.acc.id, asOf:rc.asOf, on:todayStr(), bank:c.X, waiting:c.P, nestegg:c.W, adjust:round2(adj), by:me().id, at:now(), statement:rc.stmt ? rc.stmt.name : null});
   saveState(); rc.done = {n:c.open.length - c.pend.length, waiting:c.pend.length}; render(); window.scrollTo(0, 0); confetti(); celebrate(before);
 };
 function rcDoneCard(rc){
-  return '<div class="card"><div class="empty"><span class="e">✅</span><b>Nestegg matches ' + esc(bankWord(account(rc.id))) + '.</b><br>' + rc.done.n + ' entr' + (rc.done.n === 1 ? 'y' : 'ies') + ' checked' +
+  var a = account(rc.id);
+  return '<div class="card"><div class="empty"><span class="e">✅</span><b>Nestegg matches ' + esc(a ? bankWord(a) : 'what you actually have') + '.</b><br>' + rc.done.n + ' entr' + (rc.done.n === 1 ? 'y' : 'ies') + ' checked' +
     (rc.done.waiting ? ', ' + rc.done.waiting + ' still on the way — they\'ll come up next time' : '') + '.</div><button class="btn primary block" data-act="rcBack">Done</button></div>' + reconHistory(rc.id);
 }
 function reconHistory(accId){

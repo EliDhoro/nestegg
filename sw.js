@@ -1,5 +1,5 @@
 /* Nestegg service worker — makes the app open instantly and work offline. */
-var CACHE = 'nestegg-20261029232819', LIB = 'nestegg-lib';
+var CACHE = 'nestegg-20261029234449', LIB = 'nestegg-lib';
 var SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 
 self.addEventListener('install', function(e){
