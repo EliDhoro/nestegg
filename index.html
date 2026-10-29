@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029211550' // set by tools/build.py
+  BUILD: '20261029214853' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -862,6 +862,11 @@ function monthLeftover(start){
   var s = periodSummary(start), pot = rewardFor(start);
   return {carry:s.carry, income:s.incomeBase, spent:s.spent, saved:s.saved, pot:pot, left:round2(s.carry + s.incomeBase - s.spent - s.saved - pot)};
 }
+// Money actually in hand this month: brought forward + income received − spent − saved (Reward Pot spending comes from the pot)
+function inHand(start){
+  var s = periodSummary(start);
+  return {carry:s.carry, income:s.income, spent:s.spent, saved:s.saved, left:round2(s.carry + s.income - s.spent - s.saved)};
+}
 function potBalance(){
   return memo('pot', function(){
     var earned = sum(rewardHistory(), function(r){ return r.reward; });
@@ -1132,7 +1137,7 @@ function viewHome(){
       s.leftToSpend >= 0 ? 'About <b style="color:#fff">' + fmtR(perDay) + ' a day</b> for the next ' + s.daysLeft + ' days. Spent ' + fmtR(s.spent) + ' of ' + fmtR(s.budgeted) + '.'
       : 'Over by ' + fmtR(-s.leftToSpend) + '. No stress — pick one category to trim and get back on track.') + '</div>' +
     '<div class="kpis mt"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) +
-    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div></div>';
+    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div>' + inHandRow(p) + '</div>';
   // check-in
   html += '<div class="card"><div class="row between"><h2>Daily check-in</h2>' + (mine.today ? '<span class="pill green">✓ Done today</span>' : '<span class="pill gold">Not yet today</span>') + '</div>' +
     '<div class="streaks"><div class="streak ' + (mine.today?'done':'') + '"><div class="n">🔥 ' + mine.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">' + (mine.freezes ? '🧊×' + mine.freezes : '&nbsp;') + '</div></div>' +
@@ -1286,6 +1291,23 @@ function viewBudget(){
   html += '</div>';
   return html;
 }
+// What's left of the money that actually came in (the budget above is the plan; this is the bank-side view)
+function inHandRow(p){
+  var m = inHand(p);
+  if (!m.income && !m.carry) return '<div class="row between mt small" id="in-hand"><span class="muted">💵 In hand</span><span class="muted">Log your income when it comes in</span></div>';
+  return '<div class="row between mt tap" id="in-hand" data-act="openInHand" style="cursor:pointer;border-top:1px solid rgba(255,255,255,.15);padding-top:10px"><span class="small muted">💵 In hand from what came in ›</span>' +
+    '<span class="strong ' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div>';
+}
+ACTIONS.openInHand = function(){ openSheet('inHand', {start: currentPeriod()}); };
+SHEETS.inHand = function(sh){
+  var m = inHand(sh.start);
+  function row(label, v, sign){ return '<div class="row between small" style="padding:4px 0"><span class="muted">' + label + '</span><span>' + (sign || '') + fmtR(v) + '</span></div>'; }
+  return '<h2>💵 In hand · ' + esc(periodName(sh.start)) + '</h2><p class="small muted">The money that has actually come in this month, less what has gone out. Your budget is the plan; this is what\'s really left.</p>' +
+    '<div class="card" style="padding:10px 14px">' + (m.carry ? row('Brought forward', m.carry) : '') + row('Income received', m.income, '+') + row('Spent', m.spent, '−') + row('Moved to savings', m.saved, '−') +
+    '<div class="sep"></div><div class="row between strong"><span>In hand</span><span class="' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div></div>' +
+    (m.left < 0 ? '<p class="small muted mt">More has gone out than has come in so far. If a payday hasn\'t been logged yet, add it with ＋ → Income.</p>' : '') +
+    '<div class="btns"><button class="btn primary" data-act="closeSheet">Done</button></div>';
+};
 ACTIONS.toggleGroup = function(el){
   var id = el.getAttribute('data-id'), card = el.parentNode, isOpen = !!card.querySelector('[data-act=editCat]');
   device.groupOpen = Object.assign({}, device.groupOpen || {}); device.groupOpen[id] = !isOpen; saveDevice(); render(true);
