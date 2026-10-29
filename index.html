@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029173509' // set by tools/build.py
+  BUILD: '20261029173816' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -2913,7 +2913,7 @@ VIEWS.aiSetup = function(){
       '<button class="btn sm mt" data-act="openRelayUpdate">Show me how</button></div></div>' : '') +
     (device.aiOn ? '<button class="btn" data-act="aiOff">Turn AI reading off</button>' :
       step(1, 'Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account. Click <b>Create API key</b> and copy it. It\'s free — no card needed.') +
-      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="AIza…"></label><button class="btn primary" data-act="aiSave">Save and test it</button>' +
+      step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="Paste the key here"></label><button class="btn primary" data-act="aiSave">Save and test it</button>' +
       (v < SCRIPT_VERSION ? '<p class="small neg mt">Your sync script is on version ' + v + '. It needs version ' + SCRIPT_VERSION + ' first — see the update above.</p>' : ''))) +
     '<p class="tiny muted mt">The key is kept in your own sync script, not in the app. On Google\'s free plan, what you send (the slip photo) may be used by Google to improve its services — it\'s the receipt only, never your bank details. Free daily limits are far more than a household needs.</p></div>';
   return html;
@@ -2923,7 +2923,7 @@ ACTIONS.openAiSetup = function(){ openView('aiSetup'); Relay.call({action:'ping'
 function aiProblem(detail){
   var d = String(detail || '');
   if (/location|country|region|not supported/i.test(d)) return 'Google\'s AI isn\'t offered in your country on the free plan. Receipts will keep using the text reader.';
-  if (/api key not valid|invalid|API_KEY/i.test(d)) return 'Google says that key isn\'t valid. Copy it again from AI Studio — the whole thing, starting with AIza.';
+  if (/api key not valid|invalid|API_KEY|unauthenticated|ACCESS_TOKEN_TYPE|401/i.test(d)) return 'Google didn\'t accept that key (it said: ' + d.slice(0, 120) + '). Copy the whole key again from AI Studio, or create a new one.';
   if (/quota|rate|exhausted/i.test(d)) return 'Google\'s free limit is used up for now. Try again later.';
   return 'Google\'s AI said: ' + d;
 }
@@ -2932,9 +2932,9 @@ ACTIONS.aiSave = function(){
   // AI Studio's list shows keys shortened ("AIza…x7Qw"): copying that text isn't the key
   if (/\.\.\.|…|\*{3}/.test(v)) { toast('That\'s the shortened key from the list. Click the key (or its 📋 Copy icon) in AI Studio and copy the full one.'); return; }
   var k = v.replace(/[\s"'`​-‍⁠﻿]+/g, '');  // spaces, quotes or hidden characters picked up on the way
-  if (!/^[A-Za-z0-9_\-]{30,}$/.test(k)) { toast('That doesn\'t look like a whole key — it\'s about 39 letters and numbers, starting with AIza. Copy it again from AI Studio.'); return; }
+  if (!/^[A-Za-z0-9_.\-]{30,}$/.test(k)) { toast('That doesn\'t look like a whole key — it\'s a long run of letters and numbers (newer keys start with AQ.). Copy it again from AI Studio.'); return; }
   toast('Testing the key with Google…');
-  Relay.call({action:'setGemini', gemini:k}).then(function(j){
+  Relay.call({action:'setGemini', gemini:k, models:AI_MODELS}).then(function(j){
     if (j.ok && j.ai) { device.aiOn = true; saveDevice(); toast('✨ AI reading is on'); render(); }
     else if (j.error === 'gemini') toast(aiProblem(j.detail));
     else { render(true); toast('Your sync script is still on version ' + (+j.version || 1) + ' — it needs version ' + SCRIPT_VERSION + ' (Deploy → Manage deployments → ✏️ → New version).'); }
@@ -3011,12 +3011,14 @@ var Drive = {
 // deploys this script (free) once; it keeps the data file in their Drive and serves it to devices that know the key.
 // No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
 // so a device that missed something merges first and tries again — nobody's changes get overwritten.
-var SCRIPT_VERSION = 3; // the newest RELAY_SCRIPT; keep in step with its VERSION line
+var SCRIPT_VERSION = 4; // the newest RELAY_SCRIPT; keep in step with its VERSION line
+// Gemini models to try, newest first; sent with each request so a renamed model only needs an app update
+var AI_MODELS = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
 var RELAY_SCRIPT = [
   '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
   "var KEY = '%KEY%';",
   "var FILE = 'nestegg-household-data.json';",
-  'var VERSION = 3;',
+  'var VERSION = 4;',
   '',
   'function doGet(e) { return reply({ok: true, nestegg: true, version: VERSION}); }',
   'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} var out = handle(p); out.version = VERSION; return reply(out); }',
@@ -3055,7 +3057,7 @@ var RELAY_SCRIPT = [
   'function readReceipt(p) {',
   "  var k = PropertiesService.getScriptProperties().getProperty('gemini'), ai = null;",
   '  if (k && p.prompt) {',
-  "    var a = askGemini(k, [{text: p.prompt}, {inline_data: {mime_type: p.mime || 'image/jpeg', data: p.image}}]);",
+  "    var a = askGemini(k, [{text: p.prompt}, {inline_data: {mime_type: p.mime || 'image/jpeg', data: p.image}}], p.models);",
   '    if (a.json && a.json.items && a.json.items.length) return {ok: true, ai: a.json};',
   "    ai = {error: a.error || 'no items'};",
   '  }',
@@ -3079,16 +3081,17 @@ var RELAY_SCRIPT = [
   'function setGemini(p) {',
   "  var k = String(p.gemini || '').trim(), props = PropertiesService.getScriptProperties();",
   "  if (!k) { props.deleteProperty('gemini'); return {ok: true, ai: false}; }",
-  "  var test = askGemini(k, [{text: 'Reply with this JSON: {\"ok\": true}'}]);",
+  "  var test = askGemini(k, [{text: 'Reply with this JSON: {\"ok\": true}'}], p.models);",
   "  if (test.error) return {ok: false, error: 'gemini', detail: test.error};",
   "  props.setProperty('gemini', k); return {ok: true, ai: true};",
   '}',
   '',
-  'function askGemini(k, parts) {',
-  "  var models = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'], last = '';",
+  '// The key goes in a header, as Google documents (newer "AQ." keys need that); the app says which models to try',
+  'function askGemini(k, parts, models) {',
+  "  models = models && models.length ? models : ['gemini-flash-latest', 'gemini-2.5-flash']; var last = '';",
   '  for (var i = 0; i < models.length; i++) {',
-  "    var r = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent?key=' + encodeURIComponent(k), {method: 'post',",
-  "      contentType: 'application/json', muteHttpExceptions: true, payload: JSON.stringify({contents: [{parts: parts}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})});",
+  "    var r = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', {method: 'post',",
+  "      contentType: 'application/json', headers: {'x-goog-api-key': k}, muteHttpExceptions: true, payload: JSON.stringify({contents: [{parts: parts}], generationConfig: {responseMimeType: 'application/json', temperature: 0}})});",
   '    var code = r.getResponseCode(), body = r.getContentText();',
   "    if (code === 404) { last = models[i] + ' is not available'; continue; }",
   "    if (code >= 300) { try { return {error: JSON.parse(body).error.message}; } catch (x) { return {error: 'HTTP ' + code}; } }",
@@ -3127,7 +3130,7 @@ var Relay = {
   // A receipt photo (base64 JPEG) for Google to read; an older script answers without a version and gets an update prompt
   // Returns {text} from Google's text reading, and {ai} when the script's Gemini AI read it (version 3 with a key)
   ocr: function(b64, prompt){
-    return this.call({action:'ocr', image:b64, mime:'image/jpeg', prompt:prompt || null}).then(function(j){
+    return this.call({action:'ocr', image:b64, mime:'image/jpeg', prompt:prompt || null, models:AI_MODELS}).then(function(j){
       if (!(+j.version >= 2)) { var e = new Error('The sync script needs a quick update to read receipts.'); e.needsUpdate = true; throw e; }
       if (!j.ok) throw new Error(j.error === 'ocr-failed' ? 'Google couldn\'t read that photo' + (/insufficient|scope|permission|auth/i.test(j.detail || '') ? ' — the script still needs your permission (step 3 of the update).' : '. Try again with the slip flat and well lit.') : 'Receipt reading problem: ' + (j.error || 'unknown'));
       return j;
