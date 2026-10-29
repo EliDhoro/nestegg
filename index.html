@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029223649' // set by tools/build.py
+  BUILD: '20261029230855' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -1312,7 +1312,7 @@ function inHandRow(p){
     '<span class="small muted">💵 In hand from what came in ' + (open ? '▾' : '▸') + '</span><span class="strong ' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div>' +
     (!open ? '' : '<div id="in-hand-recon" style="margin-top:6px">' + (m.carry ? row('Brought forward', m.carry) : '') + row('Income received', m.income, '+') + row('Spent', m.spent, '−') + row('Moved to savings', m.saved, '−') +
       (m.left < 0 ? '<p class="small muted" style="margin:6px 0 0">More has gone out than has come in so far. If a payday hasn\'t been logged yet, add it with ＋ → Income.</p>' : '') +
-      '<button class="btn sm mt" style="background:rgba(255,255,255,.15);color:#fff" data-act="' + (accounts().length ? 'view' : 'accQuick') + '" data-id="accounts">🔎 Compare with the bank</button></div>') + '</div>';
+      '<button class="btn sm mt" style="background:rgba(255,255,255,.15);color:#fff" data-act="compareBank">🔎 Compare with the bank</button></div>') + '</div>';
 }
 ACTIONS.toggleInHand = function(){ device.inHandOpen = !device.inHandOpen; saveDevice(); render(true); };
 ACTIONS.toggleGroup = function(el){
@@ -3103,11 +3103,12 @@ function accountsCard(){
   if (!as.length) return '<div class="card"><h2>🏦 Your accounts</h2><p class="small muted">Check that Nestegg matches your bank: tell it which accounts you have, then compare the balances whenever you like. Any difference is tracked down step by step.</p>' +
     '<button class="btn primary block" data-act="accQuick">Set up our accounts</button></div>';
   return '<div class="card"><div class="row between"><h2>🏦 Your accounts</h2><button class="btn ghost sm" data-act="view" data-id="accounts">Manage</button></div>' +
-    as.map(function(a){
-      var lr = lastRecon(a.id), status = !a.opening ? '<span class="pill gold">Not checked yet</span>' : lr ? '<span class="pill ' + (daysBetween(lr.on || lr.asOf, todayStr()) > 14 ? 'gold' : 'green') + '">✓ Checked ' + esc(fmtDate(lr.on || lr.asOf)) + '</span>' : '<span class="pill gold">Started ' + esc(fmtDate(a.opening.date)) + '</span>';
-      return '<div class="li tap" data-act="openRecon" data-id="' + a.id + '"><div class="ico">' + esc(a.emoji || '🏦') + '</div><div class="main"><div class="t">' + esc(a.name) + '</div><div class="s">' + status + '</div></div>' +
-        (a.opening ? '<span class="amt">' + fmtM(bookBalance(a)) + '</span>' : '<span class="small strong" style="color:var(--brand)">Check ›</span>') + '</div>';
-    }).join('') + '<p class="tiny muted mt">The amount is what Nestegg works out from your entries. Tap an account to compare it with the bank.</p></div>';
+    as.map(accountRow).join('') + '<p class="tiny muted mt">The amount is what Nestegg works out from your entries. Tap an account to compare it with the bank.</p></div>';
+}
+function accountRow(a){
+  var lr = lastRecon(a.id), status = !a.opening ? '<span class="pill gold">Not checked yet</span>' : lr ? '<span class="pill ' + (daysBetween(lr.on || lr.asOf, todayStr()) > 14 ? 'gold' : 'green') + '">✓ Checked ' + esc(fmtDate(lr.on || lr.asOf)) + '</span>' : '<span class="pill gold">Started ' + esc(fmtDate(a.opening.date)) + '</span>';
+  return '<div class="li tap" data-act="openRecon" data-id="' + a.id + '"><div class="ico">' + esc(a.emoji || '🏦') + '</div><div class="main"><div class="t">' + esc(a.name) + '</div><div class="s">' + status + '</div></div>' +
+    (a.opening ? '<span class="amt">' + fmtM(bookBalance(a)) + '</span>' : '<span class="small strong" style="color:var(--brand)">Check ›</span>') + '</div>';
 }
 // One tap: a bank account each and a shared cash wallet, with the right one used for each person's card payments
 ACTIONS.accQuick = function(){
@@ -3116,13 +3117,21 @@ ACTIONS.accQuick = function(){
   upsert('accounts', {id:'a-' + uid(), name:'Cash', emoji:'💵', kind:'cash', memberId:null, main:false, opening:null, order:i++, createdAt:t + i});
   saveState(); openView('accounts'); toast('Rename them to match your banks, e.g. FNB or GoTyme');
 };
+// Home → Compare with the bank: straight to checking your own account (setting the accounts up first if needed)
+ACTIONS.compareBank = function(){
+  if (!accounts().length) { ACTIONS.accQuick(); clearCache(); }
+  var id = defaultAccountFor(me().id, 'card') || accounts()[0].id;
+  ui.rc = {id:id, bank:'', asOf:todayStr(), stmt:null, list:false, start:'month'}; openView('recon');
+};
 VIEWS.accounts = function(){
   var html = topbar('Your accounts', 'Bank accounts and cash', {back:true, right:' '}), as = accounts();
-  html += '<div class="card"><p class="small muted">Each entry belongs to an account: card and EFT payments come from that person\'s main bank account, cash from your wallet. You can pick another one when you add an entry or import a statement.</p>' +
-    (as.length ? as.map(function(a){ var m = a.memberId && member(a.memberId);
-      return '<div class="li"><div class="ico">' + esc(a.emoji || '🏦') + '</div><div class="main"><div class="t">' + esc(a.name) + '</div><div class="s">' + (a.kind === 'cash' ? 'Cash' : 'Bank account') + ' · ' + esc(m ? m.name : 'Both of you') +
-        (a.main && m ? ' · ' + esc(m.name) + '\'s card & EFT' : '') + '</div></div><button class="btn sm" data-act="openRecon" data-id="' + a.id + '">Check</button><button class="btn sm ghost" data-act="editAccount" data-id="' + a.id + '" aria-label="Edit">✎</button></div>'; }).join('')
-      : '<div class="empty"><span class="e">🏦</span>No accounts yet.<br><button class="btn primary mt" data-act="accQuick">Set up our accounts</button></div>') +
+  if (!as.length) return html + '<div class="card"><div class="empty"><span class="e">🏦</span>No accounts yet.<br><button class="btn primary mt" data-act="accQuick">Set up our accounts</button></div></div>';
+  // tap an account to check it against the bank
+  html += '<div class="card"><h2>Check against the bank</h2>' + as.map(accountRow).join('') + '<p class="tiny muted mt">The amount is what Nestegg works out from your entries since the starting point.</p></div>';
+  html += '<div class="card"><h2>Set up</h2><p class="small muted">Card and EFT payments come from that person\'s main bank account, cash from your wallet. You can pick another one when you add an entry or import a statement.</p>' +
+    as.map(function(a){ var m = a.memberId && member(a.memberId);
+      return '<div class="li tap" data-act="editAccount" data-id="' + a.id + '"><div class="ico">' + esc(a.emoji || '🏦') + '</div><div class="main"><div class="t">' + esc(a.name) + '</div><div class="s">' + (a.kind === 'cash' ? 'Cash' : 'Bank account') + ' · ' + esc(m ? m.name : 'Both of you') +
+        (a.main && m ? ' · ' + esc(m.name) + '\'s card & EFT' : '') + '</div></div><span class="small muted">✎ Edit</span></div>'; }).join('') +
     '<button class="btn block mt" data-act="editAccount" data-id="">+ Add an account</button></div>';
   return html;
 };
