@@ -279,7 +279,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261029214853' // set by tools/build.py
+  BUILD: '20261029215538' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules'];
@@ -1295,19 +1295,15 @@ function viewBudget(){
 function inHandRow(p){
   var m = inHand(p);
   if (!m.income && !m.carry) return '<div class="row between mt small" id="in-hand"><span class="muted">💵 In hand</span><span class="muted">Log your income when it comes in</span></div>';
-  return '<div class="row between mt tap" id="in-hand" data-act="openInHand" style="cursor:pointer;border-top:1px solid rgba(255,255,255,.15);padding-top:10px"><span class="small muted">💵 In hand from what came in ›</span>' +
-    '<span class="strong ' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div>';
+  // the recon folds open under the line; open or closed is remembered on this device
+  var open = !!device.inHandOpen;
+  function row(label, v, sign){ return '<div class="row between small" style="padding:3px 0"><span class="muted">' + label + '</span><span>' + (sign || '') + fmtR(v) + '</span></div>'; }
+  return '<div class="mt" id="in-hand" style="border-top:1px solid rgba(255,255,255,.15);padding-top:10px"><div class="row between tap" data-act="toggleInHand" style="cursor:pointer">' +
+    '<span class="small muted">💵 In hand from what came in ' + (open ? '▾' : '▸') + '</span><span class="strong ' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div>' +
+    (!open ? '' : '<div id="in-hand-recon" style="margin-top:6px">' + (m.carry ? row('Brought forward', m.carry) : '') + row('Income received', m.income, '+') + row('Spent', m.spent, '−') + row('Moved to savings', m.saved, '−') +
+      (m.left < 0 ? '<p class="small muted" style="margin:6px 0 0">More has gone out than has come in so far. If a payday hasn\'t been logged yet, add it with ＋ → Income.</p>' : '') + '</div>') + '</div>';
 }
-ACTIONS.openInHand = function(){ openSheet('inHand', {start: currentPeriod()}); };
-SHEETS.inHand = function(sh){
-  var m = inHand(sh.start);
-  function row(label, v, sign){ return '<div class="row between small" style="padding:4px 0"><span class="muted">' + label + '</span><span>' + (sign || '') + fmtR(v) + '</span></div>'; }
-  return '<h2>💵 In hand · ' + esc(periodName(sh.start)) + '</h2><p class="small muted">The money that has actually come in this month, less what has gone out. Your budget is the plan; this is what\'s really left.</p>' +
-    '<div class="card" style="padding:10px 14px">' + (m.carry ? row('Brought forward', m.carry) : '') + row('Income received', m.income, '+') + row('Spent', m.spent, '−') + row('Moved to savings', m.saved, '−') +
-    '<div class="sep"></div><div class="row between strong"><span>In hand</span><span class="' + (m.left < 0 ? 'neg' : '') + '">' + fmtR(m.left) + '</span></div></div>' +
-    (m.left < 0 ? '<p class="small muted mt">More has gone out than has come in so far. If a payday hasn\'t been logged yet, add it with ＋ → Income.</p>' : '') +
-    '<div class="btns"><button class="btn primary" data-act="closeSheet">Done</button></div>';
-};
+ACTIONS.toggleInHand = function(){ device.inHandOpen = !device.inHandOpen; saveDevice(); render(true); };
 ACTIONS.toggleGroup = function(el){
   var id = el.getAttribute('data-id'), card = el.parentNode, isOpen = !!card.querySelector('[data-act=editCat]');
   device.groupOpen = Object.assign({}, device.groupOpen || {}); device.groupOpen[id] = !isOpen; saveDevice(); render(true);
