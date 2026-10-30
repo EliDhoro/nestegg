@@ -285,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261030131841' // set by tools/build.py
+  BUILD: '20261030133154' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -1052,14 +1052,15 @@ function celebrate(before){
 
 /* ===== Nestegg — swipe a sheet away: it pours down into the + button (the Genie effect) ===== */
 // The sheet is cut into thin strips, each a copy showing one slice. Every strip is then moved and narrowed on its own,
-// following the finger, so the sheet funnels into the + like liquid. Only transforms change, so it stays smooth on old phones.
+// following the finger, so the sheet funnels into the +. Only transforms change, so it stays smooth on old phones.
+// The shape and timing are taken frame by frame from the owner's recording of the macOS Genie effect (see genieDraw).
 var genie = null, swipe = null;
 function clamp01(t){ return t < 0 ? 0 : t > 1 ? 1 : t; }
 function smooth(t){ return t * t * (3 - 2 * t); }
 function genieTarget(r){
   var add = $('.nav .add'), b = add && add.getBoundingClientRect();
-  if (b && b.width) return {x:b.left + b.width / 2, y:b.top + b.height / 2, w:b.width};
-  return {x:r.left + r.width / 2, y:window.innerHeight - 20, w:60}; // no + on this screen: towards the bottom
+  if (b && b.width) return {x:b.left + b.width / 2, y:b.top + b.height * 0.3, w:b.width * 0.62};
+  return {x:r.left + r.width / 2, y:window.innerHeight - 8, w:38}; // no + on this screen: towards the bottom
 }
 // A copy of an element for one strip. Anything outside the strip's slice becomes an empty box of the same size, which keeps
 // the layout but makes each strip far lighter: copying the whole sheet 36 times froze slow phones for over a second.
@@ -1106,29 +1107,35 @@ function genieStart(sheet){
   sheet.style.visibility = 'hidden';
   return g;
 }
-// p: 0 = the whole sheet, 1 = gone into the +
+// p: 0 = the whole sheet, 1 = gone into the +. As in the recording:
+// first the bottom pinches into a neck while the top stays put, with the sides a bell (wide, then curving in low down);
+// the pinch climbs until they're a trumpet (a thin neck right below a wide cup);
+// then the flat top edge slides down the neck, narrowing as it goes, and each row disappears into the + as it reaches it.
 function genieDraw(g, p){
   g.p = p;
   g.overlay.style.opacity = 1 - p * 0.9;
   if (g.plain) { g.sheet.style.transform = 'translateY(' + (p * (g.ty - g.y0) + g.lift) + 'px)'; return; }
-  var funnel = smooth(clamp01(p / 0.55)), span = g.ty - g.y0;
-  // lower rows leave first and speed up towards the +; the whole sheet also gives a little under the finger
-  function row(v){
-    var at = g.y0 + v * g.h, e = clamp01((p - (1 - v) * 0.4) / 0.6);
-    e = e * e;
-    return at + (g.ty - at) * e + g.lift * (1 - e);
+  var pinch = smooth(clamp01(p / 0.12)), from = 0.7 * (1 - smooth(clamp01(p / 0.3))), to = 1 - 0.45 * smooth(clamp01(p / 0.35));
+  var slide = smooth(clamp01((p - 0.15) / 0.85)), bottom = g.y0 + g.h, end = bottom + (g.ty - bottom) * smooth(clamp01(p / 0.2));
+  var top = g.y0 + (g.ty - g.y0) * slide + g.lift * (1 - slide), mouth = g.tw + (g.w - g.tw) * (1 - smooth(clamp01((slide - 0.15) / 0.85)));
+  function width(y){
+    var u = end > top ? clamp01((y - top) / (end - top)) : 1, f = smooth(clamp01((u - from) / Math.max(0.05, to - from)));
+    return g.w + (mouth + (g.tw - mouth) * f - g.w) * pinch;
   }
-  var ys = [], ws = [], cs = [], left = [], right = [], i;
-  for (i = 0; i <= g.n; i++) {
-    var y = row(i / g.n), k = funnel * smooth(clamp01((y - g.y0) / span));
-    ys[i] = y; ws[i] = g.w + (g.tw - g.w) * k; cs[i] = g.x0 + g.w / 2 + (g.tx - g.x0 - g.w / 2) * k;
-    left.push((cs[i] - ws[i] / 2).toFixed(1) + 'px ' + y.toFixed(1) + 'px');
-    right.unshift((cs[i] + ws[i] / 2).toFixed(1) + 'px ' + y.toFixed(1) + 'px');
+  function centre(w){ return g.x0 + g.w / 2 + (g.tx - g.x0 - g.w / 2) * (g.w - w) / (g.w - g.tw); }
+  var i, y, w, left = [], right = [], ys = [];
+  for (i = 0; i <= g.n; i++) ys[i] = Math.min(end, top + i * g.sh);
+  for (i = 0; i < g.n; i++) {
+    w = width(ys[i]);
+    g.strips[i].style.transform = 'translate(' + (centre(w) - w / 2) + 'px,' + ys[i] + 'px) scale(' + (w / g.w) + ',' + Math.max(0.002, (ys[i + 1] - ys[i]) / g.sh) + ')';
   }
-  for (i = 0; i < g.n; i++) g.strips[i].style.transform = 'translate(' + (cs[i] - ws[i] / 2) + 'px,' + ys[i] + 'px) scale(' + (ws[i] / g.w) + ',' + Math.max(0.002, (ys[i + 1] - ys[i]) / g.sh) + ')';
-  // each strip is a rectangle, so its edges step; one smooth outline over them all trims the steps into a curve
+  // each strip is a rectangle, so its edges step; one smooth outline over them all trims the steps into the curve
+  for (i = 0; i <= 56; i++) {
+    y = top + (end - top) * i / 56; w = width(y);
+    left.push((centre(w) - w / 2).toFixed(1) + 'px ' + y.toFixed(1) + 'px');
+    right.unshift((centre(w) + w / 2).toFixed(1) + 'px ' + y.toFixed(1) + 'px');
+  }
   g.layer.style.clipPath = 'polygon(' + left.concat(right).join(',') + ')';
-  g.layer.style.opacity = p > 0.9 ? (1 - p) / 0.1 : 1;
 }
 function genieEnd(g){
   if (g.layer) g.layer.parentNode.removeChild(g.layer);
@@ -1144,7 +1151,7 @@ function genieRun(g, to, ms, then){
     if (start === null) start = ts;
     var t = clamp01((ts - start) / ms);
     g.lift *= 0.8;
-    genieDraw(g, from + (to - from) * (to ? t : smooth(t)));
+    genieDraw(g, from + (to - from) * (to ? t : 1 - (1 - t) * (1 - t)));
     if (t < 1) requestAnimationFrame(frame); else finish();
   }
   requestAnimationFrame(frame);
@@ -1157,12 +1164,22 @@ function genieMayLeave(){
 }
 function genieLeave(g){
   var sh = ui.sheet, typed = sh && sh.type === 'add' && !sh.editId && sh.amount;
-  genieRun(g, 1, 170 + 270 * (1 - g.p), function(){
+  genieRun(g, 1, 100 + 480 * (1 - g.p), function(){
     closeSheet(); buzz(10);
     var add = $('.nav .add');
     if (add) { add.classList.add('pop'); setTimeout(function(){ add.classList.remove('pop'); }, 320); }
     if (typed) toast('Not saved');
   });
+}
+// Out of the + when it opens a sheet: the same movement in reverse
+function genieOpen(){
+  var sheet = $('.sheet');
+  if (!sheet || genie || !$('.nav .add')) return;
+  sheet.style.animation = 'none';
+  var g = genieStart(sheet);
+  if (g.plain) { genieEnd(g); return; }
+  genieDraw(g, 1);
+  genieRun(g, 0, 470, function(){});
 }
 function genieClose(){
   var sheet = $('.sheet');
@@ -1915,7 +1932,7 @@ function openAdd(opts){
     method: opts.editId ? (opts.method || null) : (device.lastMethod || null), refund: !!opts.refund,
     split: opts.split || null, splitId: opts.splitId || null, editIds: opts.editIds || null, accountId: opts.accountId || null});
 }
-ACTIONS.quickAdd = function(){ openAdd({type:'expense'}); };
+ACTIONS.quickAdd = function(){ openAdd({type:'expense'}); genieOpen(); };
 ACTIONS.addType = function(el){
   var t = el.getAttribute('data-id');
   if (t === 'income' || t === 'expense' || t === 'saving' || t === 'skip') openAdd({type:t});
