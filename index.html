@@ -149,10 +149,16 @@ textarea.input{min-height:80px;resize:vertical}
 .nav button.on .i{filter:none;opacity:1}
 .nav .add{flex:none;width:60px;height:60px;border-radius:20px;background:var(--brand);color:#fff;font-size:32px;font-weight:400;
   display:grid;place-items:center;margin:-22px 6px 0;box-shadow:0 6px 18px rgba(31,107,79,.35);min-height:0}
+.nav .add.pop{animation:genie-pop .3s ease}
+@keyframes genie-pop{40%{transform:scale(1.18)}}
+/* swiping a sheet away: it pours into the + (03b-genie.js) */
+#genie{position:fixed;inset:0;z-index:60;pointer-events:none;overflow:hidden}
+.genie-strip{position:absolute;left:0;top:0;overflow:hidden;transform-origin:0 0;will-change:transform;contain:strict}
+.genie-strip .sheet{position:absolute;left:0;margin:0;max-width:none;max-height:none;overflow:hidden;animation:none;visibility:visible}
 /* sheet */
 .overlay{position:fixed;inset:0;background:rgba(10,15,12,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center;animation:fade .15s ease}
 .sheet{background:var(--bg);width:100%;max-width:560px;max-height:94vh;overflow:auto;border-radius:24px 24px 0 0;
-  padding:10px 16px calc(18px + env(safe-area-inset-bottom));animation:up .22s cubic-bezier(.2,.8,.2,1)}
+  padding:10px 16px calc(18px + env(safe-area-inset-bottom));animation:up .22s cubic-bezier(.2,.8,.2,1);overscroll-behavior:contain}
 @media(min-width:820px){.overlay{align-items:center}.sheet{border-radius:24px;max-height:90vh}}
 .sheet .grab{width:42px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 10px}
 .sheet h2{margin:4px 0 12px;font-size:19px}
@@ -279,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261030111538' // set by tools/build.py
+  BUILD: '20261030131841' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -945,7 +951,7 @@ function renderSheet(){
 var SHEETS = {};
 function openSheet(type, data){ ui.sheet = Object.assign({type:type}, data || {}); renderSheet(); }
 function closeSheet(){ ui.sheet = null; renderSheet(); }
-ACTIONS.sheetBg = function(el, ev){ if (ev.target === el) closeSheet(); };
+ACTIONS.sheetBg = function(el, ev){ if (ev.target === el) genieClose(); };
 ACTIONS.closeSheet = function(){ closeSheet(); };
 
 function go(tab){ ui.tab = tab; ui.view = null; ui.period = null; render(); window.scrollTo(0,0); }
@@ -1043,6 +1049,168 @@ function celebrate(before){
   else if (a.streak !== before.streak && a.streak > 0 && a.streak % 7 === 0) { confetti(); toast('⭐ ' + a.streak + '-day streak! You earned a streak freeze', 'gold'); }
   else if (a.couple > before.couple && a.couple > 0 && a.couple % 7 === 0) { confetti(); toast('💞 ' + a.couple + ' days checking in together!', 'gold'); }
 }
+
+/* ===== Nestegg — swipe a sheet away: it pours down into the + button (the Genie effect) ===== */
+// The sheet is cut into thin strips, each a copy showing one slice. Every strip is then moved and narrowed on its own,
+// following the finger, so the sheet funnels into the + like liquid. Only transforms change, so it stays smooth on old phones.
+var genie = null, swipe = null;
+function clamp01(t){ return t < 0 ? 0 : t > 1 ? 1 : t; }
+function smooth(t){ return t * t * (3 - 2 * t); }
+function genieTarget(r){
+  var add = $('.nav .add'), b = add && add.getBoundingClientRect();
+  if (b && b.width) return {x:b.left + b.width / 2, y:b.top + b.height / 2, w:b.width};
+  return {x:r.left + r.width / 2, y:window.innerHeight - 20, w:60}; // no + on this screen: towards the bottom
+}
+// A copy of an element for one strip. Anything outside the strip's slice becomes an empty box of the same size, which keeps
+// the layout but makes each strip far lighter: copying the whole sheet 36 times froze slow phones for over a second.
+// What was typed shows, nothing can be tapped, and no ids or radio groups end up duplicated in the page.
+function genieCopy(el, top, bottom, boxes){
+  var c = el.cloneNode(false), name = el.tagName;
+  c.removeAttribute('id'); c.removeAttribute('name');
+  if (name === 'INPUT' && el.type !== 'file') {
+    if (el.type === 'radio' || el.type === 'checkbox') { if (el.checked) c.setAttribute('checked', ''); else c.removeAttribute('checked'); }
+    else c.setAttribute('value', el.value);
+  }
+  if (name === 'OPTION' && el.selected) c.setAttribute('selected', '');
+  for (var k = el.firstChild; k; k = k.nextSibling) {
+    if (k.nodeType !== 1) { c.appendChild(k.cloneNode(false)); continue; }
+    var b = boxes.get(k);
+    if (b && (b.b < top || b.t > bottom)) {
+      var box = k.cloneNode(false);
+      box.removeAttribute('id'); box.removeAttribute('name');
+      box.style.cssText += ';visibility:hidden;box-sizing:border-box;width:' + b.w + 'px;height:' + b.h + 'px;flex:none';
+      c.appendChild(box);
+    } else c.appendChild(genieCopy(k, top, bottom, boxes));
+  }
+  return c;
+}
+function genieStart(sheet){
+  var r = sheet.getBoundingClientRect(), tg = genieTarget(r), overlay = sheet.parentNode;
+  var g = {sheet:sheet, overlay:overlay, x0:r.left, y0:r.top, w:r.width, h:r.height, tx:tg.x, ty:tg.y, tw:tg.w, strips:[], p:0, lift:0};
+  g.plain = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  genie = g;
+  if (g.plain) return g;
+  var n = Math.max(14, Math.min(36, Math.round(r.height / 18))), sh = r.height / n, layer = document.createElement('div');
+  var boxes = new Map();
+  $all('*', sheet).forEach(function(el){ var b = el.getBoundingClientRect(); boxes.set(el, {t:b.top, b:b.bottom, w:b.width, h:b.height}); });
+  layer.id = 'genie'; g.layer = layer; g.n = n; g.sh = sh;
+  for (var i = 0; i < n; i++) {
+    var strip = document.createElement('div'), copy = genieCopy(sheet, r.top + i * sh - 2, r.top + (i + 1) * sh + 3, boxes);
+    strip.className = 'genie-strip'; strip.style.width = r.width + 'px'; strip.style.height = (sh + 1) + 'px'; // 1px overlap: no seams
+    copy.style.top = (-i * sh) + 'px'; copy.style.width = r.width + 'px'; copy.style.height = r.height + 'px';
+    strip.appendChild(copy); layer.appendChild(strip); g.strips.push(strip);
+  }
+  document.body.appendChild(layer);
+  if (sheet.scrollTop) $all('.genie-strip > .sheet', layer).forEach(function(c){ c.scrollTop = sheet.scrollTop; });
+  genieDraw(g, 0);
+  sheet.style.visibility = 'hidden';
+  return g;
+}
+// p: 0 = the whole sheet, 1 = gone into the +
+function genieDraw(g, p){
+  g.p = p;
+  g.overlay.style.opacity = 1 - p * 0.9;
+  if (g.plain) { g.sheet.style.transform = 'translateY(' + (p * (g.ty - g.y0) + g.lift) + 'px)'; return; }
+  var funnel = smooth(clamp01(p / 0.55)), span = g.ty - g.y0;
+  // lower rows leave first and speed up towards the +; the whole sheet also gives a little under the finger
+  function row(v){
+    var at = g.y0 + v * g.h, e = clamp01((p - (1 - v) * 0.4) / 0.6);
+    e = e * e;
+    return at + (g.ty - at) * e + g.lift * (1 - e);
+  }
+  var ys = [], ws = [], cs = [], left = [], right = [], i;
+  for (i = 0; i <= g.n; i++) {
+    var y = row(i / g.n), k = funnel * smooth(clamp01((y - g.y0) / span));
+    ys[i] = y; ws[i] = g.w + (g.tw - g.w) * k; cs[i] = g.x0 + g.w / 2 + (g.tx - g.x0 - g.w / 2) * k;
+    left.push((cs[i] - ws[i] / 2).toFixed(1) + 'px ' + y.toFixed(1) + 'px');
+    right.unshift((cs[i] + ws[i] / 2).toFixed(1) + 'px ' + y.toFixed(1) + 'px');
+  }
+  for (i = 0; i < g.n; i++) g.strips[i].style.transform = 'translate(' + (cs[i] - ws[i] / 2) + 'px,' + ys[i] + 'px) scale(' + (ws[i] / g.w) + ',' + Math.max(0.002, (ys[i + 1] - ys[i]) / g.sh) + ')';
+  // each strip is a rectangle, so its edges step; one smooth outline over them all trims the steps into a curve
+  g.layer.style.clipPath = 'polygon(' + left.concat(right).join(',') + ')';
+  g.layer.style.opacity = p > 0.9 ? (1 - p) / 0.1 : 1;
+}
+function genieEnd(g){
+  if (g.layer) g.layer.parentNode.removeChild(g.layer);
+  g.sheet.style.visibility = ''; g.sheet.style.transform = ''; g.overlay.style.opacity = '';
+  genie = null;
+}
+// Runs p to where it needs to go; the timer finishes the job even if the phone stops drawing frames
+function genieRun(g, to, ms, then){
+  var from = g.p, start = null, finished = false;
+  function finish(){ if (finished) return; finished = true; genieEnd(g); then(); }
+  function frame(ts){
+    if (finished) return;
+    if (start === null) start = ts;
+    var t = clamp01((ts - start) / ms);
+    g.lift *= 0.8;
+    genieDraw(g, from + (to - from) * (to ? t : smooth(t)));
+    if (t < 1) requestAnimationFrame(frame); else finish();
+  }
+  requestAnimationFrame(frame);
+  setTimeout(finish, ms + 250);
+}
+// Scanned items take work to get back, so they're worth one question; everything else just goes
+function genieMayLeave(){
+  var sh = ui.sheet;
+  return !(sh && sh.type === 'receipt' && sh.items && sh.items.length) || confirmBox('Leave without saving this receipt?');
+}
+function genieLeave(g){
+  var sh = ui.sheet, typed = sh && sh.type === 'add' && !sh.editId && sh.amount;
+  genieRun(g, 1, 170 + 270 * (1 - g.p), function(){
+    closeSheet(); buzz(10);
+    var add = $('.nav .add');
+    if (add) { add.classList.add('pop'); setTimeout(function(){ add.classList.remove('pop'); }, 320); }
+    if (typed) toast('Not saved');
+  });
+}
+function genieClose(){
+  var sheet = $('.sheet');
+  if (!sheet || genie || !genieMayLeave()) return;
+  if (document.activeElement) document.activeElement.blur();
+  genieLeave(genieStart(sheet));
+}
+function swipeBegin(target, x, y){
+  var sheet = target.closest && target.closest('.sheet');
+  if (!sheet || genie || sheet.parentNode.id === 'genie') return;
+  // a list inside the sheet, or the sheet itself, scrolls back to the top before a swipe can close it
+  for (var el = target; el && el !== sheet.parentNode; el = el.parentNode) if (el.scrollTop > 0) return;
+  swipe = {sheet:sheet, x:x, y:y, on:false, ly:y, lt:Date.now(), v:0};
+}
+function swipeMove(x, y, ev){
+  if (!swipe) return;
+  var dy = y - swipe.y, dx = x - swipe.x;
+  if (!swipe.on) {
+    if (dy < -8 || (Math.abs(dx) > 14 && Math.abs(dx) > dy)) { swipe = null; return; } // scrolling or sideways chips
+    if (dy < 12) return;
+    swipe.on = true; swipe.y = y; dy = 0;
+    if (document.activeElement) document.activeElement.blur();
+    genieStart(swipe.sheet);
+  }
+  if (ev.cancelable) ev.preventDefault();
+  var t = Date.now(), g = genie; if (!g) return;
+  if (t > swipe.lt) { swipe.v = (y - swipe.ly) / (t - swipe.lt); swipe.ly = y; swipe.lt = t; }
+  swipe.d = dy;
+  g.lift = Math.max(0, dy) * 0.2;
+  genieDraw(g, Math.min(0.8, Math.max(0, dy) / (g.ty - g.y0) * 1.15));
+}
+function swipeEnd(ev){
+  var s = swipe; swipe = null;
+  if (!s || !s.on) return;
+  if (ev && ev.cancelable) ev.preventDefault(); // the finger lifting mustn't also press a key
+  var g = genie; if (!g) return;
+  var go = (s.d || 0) > Math.min(130, g.h * 0.22) || ((s.d || 0) > 50 && s.v > 0.6);
+  if (go && genieMayLeave()) genieLeave(g);
+  else genieRun(g, 0, 200, function(){});
+}
+document.addEventListener('touchstart', function(ev){ if (ev.touches.length === 1) swipeBegin(ev.target, ev.touches[0].clientX, ev.touches[0].clientY); else swipe = null; }, {passive:true});
+document.addEventListener('touchmove', function(ev){ if (swipe) swipeMove(ev.touches[0].clientX, ev.touches[0].clientY, ev); }, {passive:false});
+document.addEventListener('touchend', swipeEnd, {passive:false});
+document.addEventListener('touchcancel', function(){ swipeEnd(); });
+// on a PC: drag the little handle at the top of the sheet
+document.addEventListener('mousedown', function(ev){ if (ev.target.classList && ev.target.classList.contains('grab')) { swipeBegin(ev.target, ev.clientX, ev.clientY); ev.preventDefault(); } });
+document.addEventListener('mousemove', function(ev){ if (swipe) swipeMove(ev.clientX, ev.clientY, ev); });
+document.addEventListener('mouseup', function(ev){ if (swipe) swipeEnd(ev); });
 
 /* ===== Nestegg — main views: home, budget, wealth, rewards, activity ===== */
 var VIEWS = {};
