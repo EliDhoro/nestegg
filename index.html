@@ -285,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261030133154' // set by tools/build.py
+  BUILD: '20261030140744' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -1308,8 +1308,6 @@ function nudges(){
   if (s.savingsTarget > 0 && s.saved < s.savingsTarget && s.dayIndex <= 7) out.push({e:'🚀', t:'Pay yourselves first', s:'Move ' + fmtR(s.savingsTarget - s.saved) + ' to savings now for bonus points.', act:'addType', id:'saving', cls:'green'});
   var wk = weekKey(todayStr()), mdDone = live('moneyDates').some(function(x){ return x.id === 'md-' + wk; });
   if (!mdDone && (d.getDay() === 0 || d.getDay() >= 5)) out.push({e:'☕', t:'Money date this weekend', s:'15 minutes together, +50 points.', act:'tab', id:'rewards', cls:'blue'});
-  var stale = accounts().filter(function(a){ var lr = lastRecon(a.id); return a.opening && daysBetween(lr ? (lr.on || lr.asOf) : a.opening.date, todayStr()) > 14; })[0];
-  if (stale) out.push({e:'🔎', t:'Does ' + stale.name + ' match the bank?', s:'A 2-minute check catches missed or doubled entries.', act:'openRecon', id:stale.id, cls:'blue'});
   var pot = potBalance().balance;
   if (pot > 0) out.push({e:'🎉', t:fmtR(pot) + ' in your Reward Pot', s:'You earned it. Spend it guilt-free on something you both enjoy.', act:'tab', id:'rewards', cls:'gold'});
   return out.slice(0, 3);
@@ -1331,7 +1329,7 @@ function viewHome(){
   var mine = memberStreak(me().id), pr = partner(), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
   var h = new Date().getHours(), greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   var html = topbar(greet + ', ' + esc(me().name), esc(periodName(p)) + ' budget · ' + s.daysLeft + ' day' + (s.daysLeft===1?'':'s') + ' left');
-  html += '<div class="grid two">' + newMonthCard(p);
+  html += '<div class="grid two">' + newMonthCard(p) + reconDueCard();
   // hero
   var perDay = s.daysLeft > 0 ? s.leftToSpend / s.daysLeft : 0;
   html += '<div class="card hero span2"><div class="row between"><div class="muted small strong">Left to spend this month</div><span class="pill gold">' + pts.tier.emoji + ' ' + pts.tier.name + ' · ' + pts.total + ' pts</span></div>' +
@@ -2372,6 +2370,7 @@ CHANGES.restoreFile = function(el){
 var REMINDERS = [
   {e:'🔥', title:'Nestegg check-in (10 seconds)', when:'Every day at 20:00', rrule:'FREQ=DAILY', hour:20, min:0, dur:5, first:function(){ return todayStr(); }},
   {e:'☕', title:'Money date together (15 min)', when:'Sundays at 19:00', rrule:'FREQ=WEEKLY;BYDAY=SU', hour:19, min:0, dur:15, first:function(){ var t = todayStr(), d = s2d(t).getDay(); return addDays(t, (7 - d) % 7); }},
+  {e:'🔎', title:'Nestegg: check the bank or add a fresh statement', when:'Saturdays at 10:00', rrule:'FREQ=WEEKLY;BYDAY=SA', hour:10, min:0, dur:10, first:function(){ var t = todayStr(), d = s2d(t).getDay(); return addDays(t, (6 - d + 7) % 7); }},
   {e:'🚀', title:'Payday: pay yourselves first', when:'Monthly on budget start day', rrule:'FREQ=MONTHLY', hour:9, min:0, dur:10, first:function(){ return nextPeriodStart(currentPeriod()); }}
 ];
 function appUrl(){ return location.protocol.indexOf('http') === 0 ? location.origin + location.pathname : ''; }
@@ -3293,6 +3292,26 @@ function signedAmount(s){
   return isNaN(n) ? NaN : (neg ? -n : n);
 }
 
+/* ---------- the reminder to compare with the bank ---------- */
+// Nestegg has no server to send a notification, so the reminder lives on Home, and Settings adds it to the phone's calendar
+function reconEvery(){ var h = state.household; return h && h.reconEvery != null ? h.reconEvery : 7; }
+function lastMoneyCheck(){
+  var last = (state.household && state.household.createdOn) || todayStr();
+  live('recons').forEach(function(r){ var d = r.on || r.asOf; if (d > last) last = d; });
+  return last;
+}
+function reconDueCard(){
+  var every = reconEvery(), last = lastMoneyCheck(), days = daysBetween(last, todayStr());
+  if (!every || days < every || (device.rcSnooze && device.rcSnooze >= todayStr())) return '';
+  var open = live('recons').filter(function(r){ return r.balanced === false; }).sort(function(a, b){ return (b.at || 0) - (a.at || 0); })[0];
+  return '<div class="card span2" id="recon-due" style="border:1.5px solid var(--blue)"><div class="row" style="gap:12px;align-items:flex-start"><span style="font-size:26px">🔎</span><div style="flex:1;min-width:0">' +
+    '<div class="strong">Time to check your money</div><div class="small muted">' + (live('recons').length ? 'It\'s been ' + days + ' days since your last check.' : 'You haven\'t compared Nestegg with the bank yet.') +
+    (open ? ' ' + fmtM(open.diff) + ' from ' + esc(fmtDate(open.on)) + ' is still to find.' : '') + ' Check your balances or add a fresh statement, so Nestegg and the bank stay in step.</div>' +
+    '<div class="btns mt" style="flex-wrap:wrap"><button class="btn sm primary" data-act="compareBank">Check now</button><button class="btn sm ghost" data-act="rcLater">Later</button></div></div></div></div>';
+}
+ACTIONS.rcLater = function(){ device.rcSnooze = addDays(todayStr(), 2); saveDevice(); render(true); };
+ACTIONS.rcEvery = function(el){ var h = Object.assign({}, state.household); h.reconEvery = +el.getAttribute('data-id'); setHousehold(h); saveState(); render(true); toast(h.reconEvery ? 'Reminder set' : 'Reminder off'); };
+
 /* ---------- the accounts list (Wealth → Your accounts) ---------- */
 function accountsCard(){
   var as = accounts();
@@ -3321,6 +3340,8 @@ VIEWS.accounts = function(){
   if (!as.length) return html + '<div class="card"><div class="empty"><span class="e">🏦</span>No accounts yet.<br><button class="btn primary mt" data-act="accQuick">Set up our accounts</button></div></div>';
   // tap an account to check it against the bank
   html += '<div class="card"><h2>Check against the bank</h2>' + as.map(accountRow).join('') + '<p class="tiny muted mt">The amount is what Nestegg works out from your entries since the starting point.</p></div>';
+  html += '<div class="card"><h2>Remind us to check</h2><p class="small muted">Home shows a reminder when it\'s time to compare Nestegg with the bank. For a phone alert too, add it to your calendar under Settings → Reminders.</p><div class="seg">' +
+    [[7, 'Weekly'], [14, '2 weeks'], [30, 'Monthly'], [0, 'Off']].map(function(o){ return '<button class="' + (reconEvery() === o[0] ? 'on' : '') + '" data-act="rcEvery" data-id="' + o[0] + '">' + o[1] + '</button>'; }).join('') + '</div></div>';
   html += '<div class="card"><h2>Set up</h2><p class="small muted">Card and EFT payments come from that person\'s main bank account, cash from your wallet. You can pick another one when you add an entry or import a statement.</p>' +
     as.map(function(a){ var m = a.memberId && member(a.memberId);
       return '<div class="li tap" data-act="editAccount" data-id="' + a.id + '"><div class="ico">' + esc(a.emoji || '🏦') + '</div><div class="main"><div class="t">' + esc(a.name) + '</div><div class="s">' + (a.kind === 'cash' ? 'Cash' : 'Bank account') + ' · ' + esc(m ? m.name : 'Both of you') +
@@ -3375,14 +3396,14 @@ ACTIONS.openRecon = function(el){
 function saveId(id){ return 'rs-' + id + '-' + todayStr(); }
 function saveRecord(id){ var r = byId('recons', saveId(id)); return r && !r.deleted ? r : null; }
 function rcNew(id){
-  var rc = {id:id, bank:'', parts:{}, asOf:todayStr(), stmt:null, list:false, start:'month', openAmt:''}, d = (device.rcDrafts || {})[id], sv = saveRecord(id);
-  if (d && d.on === todayStr()) { rc.bank = d.bank || ''; rc.parts = d.parts || {}; rc.stmt = d.stmt || null; rc.asOf = d.asOf || rc.asOf; rc.start = d.start || 'month'; rc.openAmt = d.openAmt || ''; }
-  else if (sv && !sv.statement) { rc.bank = String(sv.bank); rc.parts = sv.parts || {}; }
+  var rc = {id:id, bank:'', typed:'', basis:'typed', parts:{}, stmts:{}, asOf:todayStr(), stmt:null, list:false, start:'month', openAmt:''}, d = (device.rcDrafts || {})[id], sv = saveRecord(id);
+  if (d && d.on === todayStr()) { rc.typed = d.typed != null ? d.typed : (d.stmt ? '' : d.bank || ''); rc.basis = d.basis || (d.stmt ? 'stmt' : 'typed'); rc.bank = d.bank || ''; rc.parts = d.parts || {}; rc.stmts = d.stmts || {}; rc.stmt = d.stmt || null; rc.asOf = d.asOf || rc.asOf; rc.start = d.start || 'month'; rc.openAmt = d.openAmt || ''; rc.from = d.from || null; }
+  else if (sv && !sv.statement) { rc.bank = rc.typed = String(sv.bank); rc.parts = sv.parts || {}; }
   return rc;
 }
 function rcKeep(){
   var rc = ui.rc; if (!rc || rc.done) return;
-  device.rcDrafts = Object.assign({}, device.rcDrafts); device.rcDrafts[rc.id] = {on:todayStr(), bank:rc.bank, parts:rc.parts, stmt:rc.stmt, asOf:rc.asOf, start:rc.start, openAmt:rc.openAmt};
+  device.rcDrafts = Object.assign({}, device.rcDrafts); device.rcDrafts[rc.id] = {on:todayStr(), bank:rc.bank, typed:rc.typed, basis:rc.basis, parts:rc.parts, stmts:rc.stmts, stmt:rc.stmt, asOf:rc.asOf, start:rc.start, openAmt:rc.openAmt, from:rc.from || null};
   device.rcOpen = {id:rc.id, at:now()}; saveDevice();
 }
 function rcOpen(id){ ui.rc = rcNew(id); device.rcOpen = {id:id, at:now()}; saveDevice(); openView('recon'); }
@@ -3419,16 +3440,55 @@ function viewReconAll(rc){
   var p = currentPeriod(), as = accounts(), html = topbar('Check our money', 'Nestegg\'s In hand vs your accounts', {back:true, backAct:'rcBack', right:' '});
   if (rc.done) return html + rcDoneCard(rc);
   html += '<div class="card"><h2>1 · What do you actually have?</h2><p class="small muted">Open your banking app' + (members().length > 1 ? 's' : '') + ' and type the <b>available balance</b> of each account' + (as.some(function(a){ return a.kind === 'cash'; }) ? ', and count your cash' : '') +
-    '. Leave out savings pockets and accounts you don\'t spend from.</p>' +
-    (as.length ? as.map(function(a){ return '<label class="field"><span>' + esc(accountLabel(a)) + '</span><input class="input" inputmode="decimal" data-input="rcPart" data-id="' + a.id + '" placeholder="0.00" value="' + esc(rc.parts[a.id] || '') + '"></label>'; }).join('') +
+    '. Leave out savings pockets and accounts you don\'t spend from. Have a statement? Add it next to the account too.</p>' +
+    (as.length ? as.map(function(a){ return partRow(rc, a); }).join('') +
       '<p class="small muted">Other accounts too? <button class="btn ghost sm" data-act="view" data-id="accounts">Add them</button></p>'
       : '<label class="field"><span>All your bank accounts and cash, added together</span><input class="input" id="f-rcbank" inputmode="decimal" data-input="rcBank" placeholder="e.g. 18 273.00" value="' + esc(rc.bank) + '"></label>') + rcKeptNote() + '</div>';
   return html + '<div id="rc-sum">' + rcSummary(rcCalc(rc), rc) + '</div>' + reconHistory(rc.id);
 }
-INPUTS.rcPart = function(el){
-  var rc = ui.rc, tot = 0, any = false; rc.parts[el.getAttribute('data-id')] = el.value;
+function partsTotal(rc){
+  var tot = 0, any = false;
   Object.keys(rc.parts).forEach(function(k){ var v = signedAmount(rc.parts[k]); if (String(rc.parts[k]).trim() !== '' && !isNaN(v)) { tot += v; any = true; } });
-  rc.bank = any ? String(round2(tot)) : ''; rcKeep(); clearCache(); var box = $('#rc-sum'); if (box) box.innerHTML = rcSummary(rcCalc(rc), rc);
+  rc.bank = rc.typed = any ? String(round2(tot)) : '';
+}
+// One account on Check our money: its balance, with a statement alongside. A statement stops at its last day, so what's
+// been logged on the account since is added on: that's what it should hold today, the same day In hand is worked out to.
+function stmtToday(a, st){ return round2(st.closing + sum(live('tx').filter(function(t){ return t.date > st.end && t.date <= todayStr() && txAccountId(t) === a.id; }), txFlow)); }
+function partRow(rc, a){
+  var st = rc.stmts[a.id], note = '';
+  if (st) {
+    var today = st.closing != null ? stmtToday(a, st) : null, typed = String(rc.parts[a.id] || '').trim();
+    note = '<div class="small muted" style="margin-top:6px" id="rc-partst-' + a.id + '">📄 ' + esc(st.name) + (today === null ? ': no balance shown on it.' : ': closing ' + fmtM(st.closing) + ' on ' + esc(fmtDate(st.end)) +
+      (cents(today) !== cents(st.closing) ? ', plus entries since = ' + fmtM(today) + ' today.' : '.')) +
+      '<div class="btns" style="margin-top:6px;flex-wrap:wrap">' + (today !== null && cents(signedAmount(typed)) !== cents(today) ? '<button class="btn sm" data-act="rcPartUse" data-id="' + a.id + '">Use ' + fmtM(today) + '</button>' : '') +
+      '<button class="btn sm" data-act="rcPartLines" data-id="' + a.id + '">Match it line by line</button><button class="btn sm ghost" data-act="rcPartDrop" data-id="' + a.id + '">Remove</button></div></div>';
+  }
+  return '<div style="margin-bottom:12px"><div class="small strong muted" style="margin-bottom:4px">' + esc(accountLabel(a)) + '</div><div class="row" style="gap:8px"><input class="input" style="flex:1;min-width:0" inputmode="decimal" data-input="rcPart" data-id="' + a.id + '" placeholder="0.00" value="' + esc(rc.parts[a.id] || '') + '">' +
+    (a.kind === 'cash' ? '' : '<label class="btn sm" style="cursor:pointer;flex:none">📄 ' + (st ? 'Add more' : 'Statement') + '<input type="file" accept=".csv,.txt,.pdf,text/csv,application/pdf" data-change="rcPartFile" data-id="' + a.id + '" class="hidden"></label>') + '</div>' + note + '</div>';
+}
+CHANGES.rcPartFile = function(el){
+  var f = el.files && el.files[0], id = el.getAttribute('data-id'); if (!f) return;
+  toast('Reading ' + f.name + '…');
+  readStatement(f).then(function(st){
+    var rc = ui.rc; rc.stmts[id] = rc.stmts[id] ? stmtMerge(rc.stmts[id], st) : st;
+    // an empty box takes the statement's figure; a balance you typed stays, and you choose
+    if (!String(rc.parts[id] || '').trim() && st.closing != null) rc.parts[id] = String(stmtToday(account(id), rc.stmts[id]));
+    partsTotal(rc); rcKeep(); render(true);
+  }).catch(function(e){ toast(e.message || String(e)); });
+};
+ACTIONS.rcPartUse = function(el){ var rc = ui.rc, id = el.getAttribute('data-id'); rc.parts[id] = String(stmtToday(account(id), rc.stmts[id])); partsTotal(rc); rcKeep(); render(true); };
+ACTIONS.rcPartDrop = function(el){ var rc = ui.rc; delete rc.stmts[el.getAttribute('data-id')]; rcKeep(); render(true); };
+// The account's own check, with this statement and the balance typed here already in it; Back returns to Check our money
+ACTIONS.rcPartLines = function(el){
+  var from = ui.rc, id = el.getAttribute('data-id'), st = from.stmts[id], rc = rcNew(id);
+  rc.from = 'all'; rc.stmt = null; rc.typed = String(from.parts[id] || ''); rc.bank = rc.typed; rc.basis = 'typed'; rc.asOf = todayStr();
+  rcKeep(); ui.rc = rc;
+  try { stmtAdd(rc, st); } catch (e) { toast(e.message || String(e)); }
+  rcKeep(); saveState(); openView('recon');
+};
+INPUTS.rcPart = function(el){
+  var rc = ui.rc; rc.parts[el.getAttribute('data-id')] = el.value;
+  partsTotal(rc); rcKeep(); clearCache(); var box = $('#rc-sum'); if (box) box.innerHTML = rcSummary(rcCalc(rc), rc);
 };
 function rcMakeupAll(c){
   var p = currentPeriod(), m = c.m, s = c.s;
@@ -3463,11 +3523,12 @@ VIEWS.recon = function(){
   var c = rcCalc(rc), cash = acc.kind === 'cash';
   // 1. what the bank says
   html += '<div class="card"><h2>' + (cash ? '💵 Count your cash' : '1 · What does the bank say?') + '</h2>' +
-    (rc.stmt ? '<p class="small muted">From your statement (' + esc(rc.stmt.name) + '): its closing balance on ' + esc(fmtDate(rc.asOf, true)) + '. Nestegg is compared up to that same day, so entries after it aren\'t counted.</p>'
-      : '<p class="small muted">' + (cash ? 'Count the notes and coins in ' + esc(acc.name) + ' and type the total.' : 'Open your banking app and type the <b>available balance</b> of ' + esc(acc.name) + ' as it is right now. Overdrawn? Put a minus in front.') + '</p>') +
+    (rc.stmt && rc.stmt.closing != null ? '<div class="seg" style="margin-bottom:8px"><button class="' + (rc.basis !== 'stmt' ? 'on' : '') + '" data-act="rcBasis" data-id="typed">Today\'s balance</button><button class="' + (rc.basis === 'stmt' ? 'on' : '') + '" data-act="rcBasis" data-id="stmt">Statement closing</button></div>' : '') +
+    (rc.stmt && rc.basis === 'stmt' ? '<p class="small muted">The closing balance on ' + esc(fmtDate(rc.asOf, true)) + ' (' + esc(rc.stmt.name) + '). Nestegg is compared up to that same day, so entries after it aren\'t counted.</p>'
+      : '<p class="small muted">' + (cash ? 'Count the notes and coins in ' + esc(acc.name) + ' and type the total.' : 'Open your banking app and type the <b>available balance</b> of ' + esc(acc.name) + ' as it is right now. Overdrawn? Put a minus in front.' + (rc.stmt ? ' The statement is matched line by line below.' : '')) + '</p>') +
     '<label class="field"><input class="input" id="f-rcbank" inputmode="decimal" data-input="rcBank" placeholder="e.g. 4 812.50" value="' + esc(rc.bank) + '"></label>' +
-    (cash ? '' : '<div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm" style="cursor:pointer">📄 ' + (rc.stmt ? 'Use another statement' : 'Use a statement instead') + '<input type="file" accept=".csv,.txt,.pdf,text/csv,application/pdf" data-change="rcFile" class="hidden"></label>' +
-      (rc.stmt ? '<button class="btn sm ghost" data-act="rcNoStmt">Use today\'s balance instead</button>' : '') + '</div>') + rcKeptNote() + '</div>';
+    (cash ? '' : '<div class="row" style="gap:8px;flex-wrap:wrap"><label class="btn sm" style="cursor:pointer">📄 ' + (rc.stmt ? 'Add another statement' : 'Add a statement') + '<input type="file" accept=".csv,.txt,.pdf,text/csv,application/pdf" data-change="rcFile" class="hidden"></label>' +
+      (rc.stmt ? '<button class="btn sm ghost" data-act="rcNoStmt">Remove statement</button>' : '') + '</div>') + rcKeptNote() + '</div>';
   html += '<div id="rc-sum">' + rcSummary(c, rc) + '</div>' + reconHistory(acc.id);
   return html;
 };
@@ -3487,7 +3548,7 @@ function rcMakeup(c, rc){
     '<div class="row between" style="padding:4px 0"><span class="muted">Starting balance <span class="tiny">(' + (o.src === 'statement' ? 'from your statement' : 'you typed it') + ', ' + (o.date === todayStr() ? 'today' : 'end of ' + esc(fmtDate(o.date))) + ')</span></span><span>' + fmtM(o.amount) + ' <button class="btn ghost sm" style="padding:2px 6px;min-height:0" data-act="rcOpening">Change</button></span></div>' +
     row('+ Money in logged since', sum(ins, txFlow), '', ins.length) + row('− Money out logged since', -sum(outs, txFlow), '−', outs.length) +
     '<div class="sep"></div><div class="row between strong" style="padding:4px 0"><span>Nestegg says</span><span>' + fmtM(c.W) + '</span></div>';
-  var later = rc.stmt ? ledger(acc).length - c.all.length : 0;
+  var later = rc.stmt && rc.basis === 'stmt' ? ledger(acc).length - c.all.length : 0;
   if (later) html += '<p class="tiny muted">' + later + ' entr' + (later === 1 ? 'y' : 'ies') + ' after ' + esc(fmtDate(rc.asOf)) + ' (the statement\'s last day) ' + (later === 1 ? 'isn\'t' : 'aren\'t') + ' counted here.</p>';
   if (c.all.length) html += '<details class="mt"><summary class="small muted">See the ' + c.all.length + ' entr' + (c.all.length === 1 ? 'y' : 'ies') + ' counted</summary>' + sortTx(c.all).slice(0, 60).map(txRow).join('') + '</details>';
   if (!c.all.length) html += '<div class="nudge gold" style="cursor:default;margin-top:8px"><div class="e">⚠️</div><div><div class="t" style="white-space:normal">Nothing logged on this account since the starting point</div><div class="small muted">So Nestegg\'s figure is just the balance you typed. ' +
@@ -3541,8 +3602,17 @@ function rcSaveBox(c, rc){
   if (sv && cents(sv.bank) === cents(c.X) && cents(sv.diff) === cents(c.D)) return '<p class="small" id="rc-saved">💾 Saved ' + esc(fmtDate(sv.on)) + ' with this difference. Come back to it any time.</p>';
   return '<button class="btn block" data-act="rcSaveCheck">💾 Save these balances</button><p class="tiny muted">Keeps the balances and the difference so you can finish later. It counts as checked once the difference is R0.</p>';
 }
-INPUTS.rcBank = function(el){ ui.rc.bank = el.value; rcKeep(); clearCache(); var box = $('#rc-sum'); if (box) box.innerHTML = rcSummary(rcCalc(ui.rc), ui.rc); };
-ACTIONS.rcBack = function(){ device.rcOpen = null; saveDevice(); if (ui.rc && ui.rc.done) { ui.rc = null; ui.view = 'accounts'; render(); return; } ui.rc = null; ACTIONS.back(); };
+ACTIONS.rcBasis = function(el){ var rc = ui.rc; rc.basis = el.getAttribute('data-id'); rcApplyBasis(rc); rcKeep(); render(true); };
+// Which balance the comparison uses, once a statement sits next to the typed one
+function rcApplyBasis(rc){
+  if (rc.basis === 'stmt' && rc.stmt && rc.stmt.closing != null) { rc.asOf = rc.stmt.end; rc.bank = String(rc.stmt.closing); }
+  else { rc.basis = 'typed'; rc.asOf = todayStr(); rc.bank = rc.typed || ''; }
+}
+INPUTS.rcBank = function(el){
+  var rc = ui.rc; rc.typed = rc.bank = el.value;
+  if (rc.basis === 'stmt') { rc.basis = 'typed'; rc.asOf = todayStr(); $all('[data-act=rcBasis]').forEach(function(b){ b.classList.toggle('on', b.getAttribute('data-id') === 'typed'); }); }
+  rcKeep(); clearCache(); var box = $('#rc-sum'); if (box) box.innerHTML = rcSummary(rcCalc(ui.rc), ui.rc); };
+ACTIONS.rcBack = function(){ device.rcOpen = null; saveDevice(); if (ui.rc && ui.rc.from) { rcOpen(ui.rc.from); return; } if (ui.rc && ui.rc.done) { ui.rc = null; ui.view = 'accounts'; render(); return; } ui.rc = null; ACTIONS.back(); };
 
 // The first time: where checking starts from
 function rcStartCard(rc, acc){
@@ -3750,25 +3820,42 @@ function reconHistory(accId){
 CHANGES.rcFile = function(el){
   var f = el.files && el.files[0]; if (!f) return;
   toast('Reading ' + f.name + '…');
+  readStatement(f).then(function(stmt){
+    stmtAdd(ui.rc, stmt); rcKeep(); saveState(); render(); window.scrollTo(0, 0);
+    if (ui.rc.stmt.closing == null) toast('This statement has no balance column, so only its lines can be matched.');
+  }).catch(function(e){ toast(e.message || String(e)); });
+};
+function readStatement(f){
   var read = (/\.pdf$/i.test(f.name) || f.type === 'application/pdf') ? pdfLines(f).then(rowsFromPdfLines)
     : f.text().then(function(text){ var rows = parseCSV(text), map = detectColumns(rows); return map ? rowsFromCSV(rows, map) : []; });
-  read.then(function(rows){
+  return read.then(function(rows){
     if (!rows.length) throw new Error('No transactions found in ' + f.name + '. For an unusual layout, use Import statements first.');
     var asc = stmtAscending(rows), first = asc ? rows[0] : rows[rows.length - 1], last = asc ? rows[rows.length - 1] : rows[0];
     var dates = rows.map(function(r){ return r.date; }).sort();
-    var stmt = {name:f.name, rows:rows, start:dates[0], end:dates[dates.length - 1],
+    return {name:f.name, rows:rows, start:dates[0], end:dates[dates.length - 1],
       closing:last.bal != null ? last.bal : (rows.closeBal != null ? rows.closeBal : null), opening:first.bal != null ? round2(first.bal - first.amount) : (rows.openBal != null ? rows.openBal : null)};
-    var rc = ui.rc, a = account(rc.id);
-    if (!a.opening) {
-      if (stmt.opening == null) throw new Error('This statement doesn\'t show balances, so Nestegg can\'t take a starting point from it. Choose "From the start" or "From today" instead.');
-      a = Object.assign({}, a); a.opening = {date:addDays(stmt.start, -1), amount:stmt.opening, at:now(), src:'statement'}; upsert('accounts', a);
-    }
-    rc.stmt = stmt; rc.asOf = stmt.end; rc.bank = stmt.closing != null ? String(stmt.closing) : '';
-    stmtClearPending(rc);
-    rcKeep(); saveState(); render(); window.scrollTo(0, 0);
-    if (stmt.closing == null) toast('This statement has no balance column — type the closing balance from it.');
-  }).catch(function(e){ toast(e.message || String(e)); });
-};
+  });
+}
+// A statement goes in next to the typed balance. A balance already typed stays in use; an empty box takes the closing balance.
+function stmtAdd(rc, st){
+  var a = account(rc.id);
+  if (!a.opening) {
+    if (st.opening == null) throw new Error('This statement doesn\'t show balances, so Nestegg can\'t take a starting point from it. Choose "From the start" or "From today" instead.');
+    a = Object.assign({}, a); a.opening = {date:addDays(st.start, -1), amount:st.opening, at:now(), src:'statement'}; upsert('accounts', a); clearCache();
+  }
+  rc.stmt = rc.stmt ? stmtMerge(rc.stmt, st) : st;
+  rc.basis = String(rc.typed || '').trim() ? 'typed' : 'stmt';
+  rcApplyBasis(rc); stmtClearPending(rc);
+}
+// Two statements for one account become one long one; a line on both (they overlap) counts once
+function stmtMerge(a, b){
+  var seen = {}, rows = a.rows.slice();
+  function key(r){ return r.date + '|' + r.amount + '|' + r.desc; }
+  a.rows.forEach(function(r){ seen[key(r)] = (seen[key(r)] || 0) + 1; });
+  b.rows.forEach(function(r){ if (seen[key(r)] > 0) seen[key(r)]--; else rows.push(r); });
+  var later = b.end >= a.end ? b : a, earlier = b.start < a.start ? b : a;
+  return {name:a.name + ' + ' + b.name, rows:rows, start:earlier.start, end:later.end, closing:later.closing != null ? later.closing : a.closing, opening:earlier.opening != null ? earlier.opening : a.opening};
+}
 // Which way the file runs: by its running balance when it has one (several lines can share a date), else by date
 function stmtAscending(rows){
   var up = 0, down = 0;
@@ -3797,7 +3884,7 @@ ACTIONS.rcUseStmt = function(){
   a.opening = {date:addDays(st.start, -1), amount:st.opening, at:now(), src:'statement'}; upsert('accounts', a);
   clearCache(); stmtClearPending(rc); saveState(); render(true); toast('Starting from the statement');
 };
-ACTIONS.rcNoStmt = function(){ ui.rc.stmt = null; ui.rc.asOf = todayStr(); ui.rc.bank = ''; rcKeep(); render(); };
+ACTIONS.rcNoStmt = function(){ var rc = ui.rc; rc.stmt = null; rc.basis = 'typed'; rcApplyBasis(rc); rcKeep(); render(); };
 function stmtMatch(acc, stmt){
   var boundary = acc.opening ? acc.opening.date : '0000-00-00', claimed = {}, counts = {};
   var lines = stmt.rows.map(function(s){ return Object.assign({key:stmtKey(s, counts)}, s); }).filter(function(s){ return s.date > boundary; });
