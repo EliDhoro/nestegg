@@ -285,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261030154132' // set by tools/build.py
+  BUILD: '20261030154831' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -4212,11 +4212,11 @@ function goalShares(saves, focus){
   return out;
 }
 function goalLine(e){
-  var g = e.g, late = g.targetDate && e.on && e.on > periodKeyFor(g.targetDate), date = !g.targetDate ? '' : late ? ' Still after your ' + fmtDate(g.targetDate, true) + ' date.' : ' In time for ' + fmtDate(g.targetDate, true) + '.';
+  var g = e.g, late = g.targetDate && e.on && e.on > periodKeyFor(g.targetDate), date = late ? ' Still after your ' + fmtDate(g.targetDate, true) + ' date.' : '', by = g.targetDate && !late ? 'in time for ' + fmtDate(g.targetDate, true) : e.on ? keyName(e.on) : '';
   if (!e.after) return 'Nothing is going in yet, so it won\'t be reached at this rate.';
-  var when = 'Reached ' + keyName(e.on);
+  var when = 'Reached ' + by;
   if (e.add > 0 && e.sooner > 0) return when + ' instead of ' + keyName(e.was) + ': ' + e.sooner + ' month' + (e.sooner === 1 ? '' : 's') + ' sooner.' + date;
-  if (e.add > 0 && e.before === null) return 'Nothing is going in now. This reaches it in ' + e.after + ' month' + (e.after === 1 ? '' : 's') + ', by ' + keyName(e.on) + '.' + date;
+  if (e.add > 0 && e.before === null) return 'Nothing is going in now. This reaches it in ' + e.after + ' month' + (e.after === 1 ? '' : 's') + ', ' + (g.targetDate && !late ? by : 'by ' + by) + '.' + date;
   return when + ' at your current ' + fmtR(e.rate) + ' a month.' + date;
 }
 ACTIONS.smartFocus = function(el){ var id = el.getAttribute('data-id'); ui.smartFocus = ui.smartFocus === id ? null : id; render(true); };
