@@ -285,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261030154831' // set by tools/build.py
+  BUILD: '20261030155631' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -3178,14 +3178,14 @@ VIEWS.aiSetup = function(){
   var html = topbar('Smarter receipt reading', 'Google\'s free AI reads your slips', {back:true, backAct:'toSettings', right:' '});
   html += '<div class="card"><p class="small">' + (device.aiOn ? '✅ <b>On.</b> Slips are read by Google\'s AI, which copes with any layout. If it\'s ever unavailable, Nestegg uses the text reader instead.'
       : 'Google\'s free Gemini AI reads a slip the way a person would — items, prices and which of your lines they belong to — so unusual layouts, faded print and abbreviations come out right far more often.') + '</p>' +
-    (v < SCRIPT_VERSION ? '<div class="nudge gold" style="cursor:default"><div class="e">⬆️</div><div><div class="t">First, update your sync script</div><div class="small muted">About 3 minutes, the same steps as last time.</div>' +
+    (v < AI_SCRIPT ? '<div class="nudge gold" style="cursor:default"><div class="e">⬆️</div><div><div class="t">First, update your sync script</div><div class="small muted">About 3 minutes, the same steps as last time.</div>' +
       '<button class="btn sm mt" data-act="openRelayUpdate">Show me how</button></div></div>' : '') +
     (device.aiOn ? '<button class="btn" data-act="aiOff">Turn AI reading off</button>' :
       step(1, 'Open <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> and sign in with your Google account. Click <b>Create API key</b> and copy it. It\'s free — no card needed.') +
       step(2, 'Paste it here:<label class="field" style="margin-top:6px"><input class="input" id="ai-key" autocomplete="off" placeholder="Paste the key here"></label><button class="btn primary" data-act="aiSave"' + (ui.aiTesting ? ' disabled' : '') + '>Save and test it</button>' +
       (ui.aiTesting ? '<p class="small mt"><span class="spinner"></span> Testing the key with Google… this can take up to 30 seconds. Keep this screen open.</p>' : '') +
       (ui.aiMsg ? '<p class="small neg mt" id="ai-msg">' + esc(ui.aiMsg) + '</p>' : '') +
-      (v < SCRIPT_VERSION ? '<p class="small neg mt">Your sync script is on version ' + v + '. It needs version ' + SCRIPT_VERSION + ' first — see the update above.</p>' : ''))) +
+      (v < AI_SCRIPT ? '<p class="small neg mt">Your sync script is on version ' + v + '. It needs version ' + AI_SCRIPT + ' first — see the update above.</p>' : ''))) +
     '<p class="tiny muted mt">The key is kept in your own sync script, not in the app. On Google\'s free plan, what you send (the slip photo) may be used by Google to improve its services — it\'s the receipt only, never your bank details. Free daily limits are far more than a household needs.</p></div>';
   return html;
 };
@@ -3210,7 +3210,7 @@ ACTIONS.aiSave = function(){
   Relay.call({action:'setGemini', gemini:k, models:AI_MODELS}).then(function(j){
     if (j.ok && j.ai) { device.aiOn = true; saveDevice(); done(''); toast('✨ AI reading is on'); }
     else if (j.error === 'gemini') done(aiProblem(j.detail));
-    else if (+j.version < SCRIPT_VERSION) done('Your sync script is still on version ' + (+j.version || 1) + ' — it needs version ' + SCRIPT_VERSION + ' (Deploy → Manage deployments → ✏️ → New version).');
+    else if (+j.version < AI_SCRIPT) done('Your sync script is still on version ' + (+j.version || 1) + ' — it needs version ' + AI_SCRIPT + ' (Deploy → Manage deployments → ✏️ → New version).');
     else done('The sync script answered: ' + (j.error || JSON.stringify(j)).slice(0, 200));
   }).catch(function(e){ done(e.message || String(e)); });
 };
@@ -4251,7 +4251,7 @@ SHEETS.itemPrices = function(sh){
   return '<h2>' + esc(e.name) + '</h2><div class="kpis"><div class="kpi"><div class="l">Lowest</div><div class="v">' + fmtM(Math.min.apply(null, each)) + '</div></div><div class="kpi"><div class="l">Usual</div><div class="v">' + fmtM(median(each)) + '</div></div><div class="kpi"><div class="l">Latest</div><div class="v">' + fmtM(buys[0].a) + '</div></div></div>' +
     (ps.length > 1 ? '<div class="small strong mt">By shop</div>' + ps.map(function(s, i){ return '<div class="row between small" style="padding:3px 0"><span class="muted">' + (i ? '' : '✅ ') + esc(s.shop) + '</span><span>' + fmtM(s.price) + '</span></div>'; }).join('') : '') +
     '<div class="small strong mt">Every time you bought it</div>' + buys.slice(0, 30).map(function(b){ return '<div class="row between small" style="padding:3px 0"><span class="muted">' + esc(fmtDate(b.date, true)) + ' · ' + esc(b.shop) + (b.qty > 1 ? ' · ' + b.qty + ' of them' : '') + '</span><span>' + fmtM(b.a) + (b.qty > 1 ? ' each' : '') + '</span></div>'; }).join('') +
-    '<button class="btn block mt" data-act="closeSheet">Done</button>';
+    '<button class="btn block mt" data-act="priceCheck" data-id="' + esc(e.name) + '">🔎 Check prices online</button><button class="btn block mt" data-act="closeSheet">Done</button>';
 };
 function priceRows(q){
   var w = String(q || '').trim().toUpperCase();
@@ -4264,10 +4264,44 @@ function priceRows(q){
 VIEWS.prices = function(){
   var p = purchases();
   return topbar('Price book', p.items.length + ' item' + (p.items.length === 1 ? '' : 's') + ' from your slips', {back:true, backAct:'pricesBack', right:' '}) +
-    '<div class="card"><label class="field" style="margin:0"><input class="input" id="f-priceq" data-input="priceQ" placeholder="Search, e.g. oil or bread"></label><div id="price-rows" class="mt">' + priceRows('') + '</div></div>';
+    '<div class="card"><label class="field" style="margin:0"><input class="input" id="f-priceq" data-input="priceQ" placeholder="Search, e.g. oil or bread"></label><button class="btn block mt" data-act="priceCheckTyped">🔎 Check this online</button><div id="price-rows" class="mt">' + priceRows('') + '</div></div>';
 };
 ACTIONS.pricesBack = function(){ openView('smart'); };
 INPUTS.priceQ = function(el){ $('#price-rows').innerHTML = priceRows(el.value); };
+
+/* ---------- checking a price online, one item at a time ---------- */
+// Google's terms for search results: shown only to the person who asked, with Google's search chips, unchanged; never stored, reused
+// or learned from. So a result stays in this sheet, is plain text as it came, and goes when the sheet closes. It must never reach
+// the price book, the plan or the AI ideas. The price book stays the household's own database: those prices come from their slips.
+function pricePrompt(name){
+  return noNames('What is the current shelf price in South Africa of: ' + name + '? Look at South African retailers such as Checkers, Shoprite, Pick n Pay, Woolworths, Spar, Makro and Dis-Chem where they sell it. ' +
+    'Answer as a short list: shop, price in rand, pack size. Only give prices you found on a page. If you can\'t find a recent price, say so instead of estimating.');
+}
+function priceCheck(name){
+  name = String(name || '').trim().slice(0, 80); if (!name) { toast('Type an item first'); return; }
+  if (!device.aiOn) { closeSheet(); ACTIONS.openAiSetup(); toast('Turn on Google\'s AI first'); return; }
+  openSheet('priceCheck', {name:name, busy:+device.relayVersion < SCRIPT_VERSION ? false : true, old:+device.relayVersion < SCRIPT_VERSION});
+  if (ui.sheet.old) return;
+  var sh = ui.sheet;
+  Relay.search(pricePrompt(name)).then(function(j){
+    if (ui.sheet !== sh) return;
+    sh.busy = false; sh.text = String(j.text); sh.sources = j.sources || []; sh.chips = String(j.suggestions || ''); renderSheet();
+  }).catch(function(e){ if (ui.sheet === sh) { sh.busy = false; sh.error = e.message || String(e); renderSheet(); } });
+}
+ACTIONS.priceCheck = function(el){ priceCheck(el.getAttribute('data-id')); };
+ACTIONS.priceCheckTyped = function(){ priceCheck(($('#f-priceq') || {}).value); };
+SHEETS.priceCheck = function(sh){
+  var html = '<h2>🔎 ' + esc(sh.name) + '</h2>';
+  if (sh.old) return html + '<p class="small muted">Checking prices online needs a quick update to your sync script. It takes about 3 minutes, on the computer, and your budget isn\'t touched.</p><button class="btn primary block" data-act="openRelayUpdate">Show me how</button>';
+  if (sh.busy) return html + '<p class="small"><span class="spinner"></span> Searching with Google…</p>';
+  if (sh.error) return html + '<p class="small neg" id="price-error">' + esc(sh.error) + '</p><button class="btn block" data-act="closeSheet">Close</button>';
+  var seen = {}, links = sh.sources.filter(function(s){ if (!/^https:\/\//.test(s.uri) || seen[s.uri]) return false; seen[s.uri] = 1; return true; });
+  return html + '<div class="small" id="price-answer" style="white-space:pre-wrap">' + esc(sh.text) + '</div>' +
+    (links.length ? '<div class="small strong mt">Sources</div>' + links.slice(0, 6).map(function(s){ return '<div class="small" style="padding:2px 0"><a href="' + esc(s.uri) + '" target="_blank" rel="noopener noreferrer">' + esc(s.title) + '</a></div>'; }).join('') : '') +
+    // Google's own search chips, as supplied, in a sealed frame: they can open a link and nothing else
+    (sh.chips ? '<iframe id="price-chips" title="Google search suggestions" sandbox="allow-popups allow-popups-to-escape-sandbox" style="width:100%;height:64px;border:0;margin-top:8px" srcdoc="' + esc('<base target="_blank">' + sh.chips) + '"></iframe>' : '') +
+    '<p class="tiny muted mt">From a live Google search. Online prices can be out of date or wrong, and this isn\'t saved or used in your budget.</p><button class="btn block" data-act="closeSheet">Done</button>';
+};
 
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
@@ -4335,14 +4369,15 @@ var Drive = {
 // deploys this script (free) once; it keeps the data file in their Drive and serves it to devices that know the key.
 // No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
 // so a device that missed something merges first and tries again — nobody's changes get overwritten.
-var SCRIPT_VERSION = 4; // the newest RELAY_SCRIPT; keep in step with its VERSION line
+var SCRIPT_VERSION = 5, AI_SCRIPT = 4; // the newest RELAY_SCRIPT (keep in step with its VERSION line), and the oldest that can use an AI key
+var SEARCH_MODELS = ['gemini-2.5-flash']; // the one model with free Google Search; the script tries what this lists
 // Gemini models to try, newest first; sent with each request so a renamed model only needs an app update
 var AI_MODELS = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
 var RELAY_SCRIPT = [
   '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
   "var KEY = '%KEY%';",
   "var FILE = 'nestegg-household-data.json';",
-  'var VERSION = 4;',
+  'var VERSION = 5;',
   '',
   'function doGet(e) { return reply({ok: true, nestegg: true, version: VERSION}); }',
   'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} var out = handle(p); out.version = VERSION; return reply(out); }',
@@ -4352,6 +4387,7 @@ var RELAY_SCRIPT = [
   "  if (p.action === 'ping') return {ok: true, ai: !!PropertiesService.getScriptProperties().getProperty('gemini')};",
   "  if (p.action === 'ocr') return readReceipt(p);",
   "  if (p.action === 'setGemini') return setGemini(p);",
+  "  if (p.action === 'search') return searchWeb(p);",
   '  var lock = LockService.getScriptLock(); lock.waitLock(20000);',
   '  try {',
   "    var props = PropertiesService.getScriptProperties(), rev = Number(props.getProperty('rev') || 0), file = dataFile(props);",
@@ -4424,6 +4460,45 @@ var RELAY_SCRIPT = [
   '  return {error: last};',
   '}',
   '',
+  "// Looking up a price online: Gemini with Google Search, free on gemini-2.5-flash. Google's terms: shown to the person who asked, never stored.",
+  "function searchWeb(p) {",
+  "  var k = PropertiesService.getScriptProperties().getProperty('gemini'), last = '';",
+  "  if (!k) return {ok: false, error: 'no-ai'};",
+  "  var models = p.models && p.models.length ? p.models : ['gemini-2.5-flash'];",
+  "  for (var i = 0; i < models.length; i++) {",
+  "    var a = searchNew(k, models[i], p.prompt); if (a.text) return a;",
+  "    var b = searchOld(k, models[i], p.prompt); if (b.text) return b;",
+  "    last = b.error || a.error || 'no answer';",
+  "  }",
+  "  return {ok: false, error: 'search', detail: last};",
+  "}",
+  "function postGemini(k, path, body) {",
+  "  var r = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/' + path, {method: 'post', contentType: 'application/json', headers: {'x-goog-api-key': k}, muteHttpExceptions: true, payload: JSON.stringify(body)});",
+  "  var j = {}; try { j = JSON.parse(r.getContentText()); } catch (x) {}",
+  "  return r.getResponseCode() >= 300 ? {error: (j.error && j.error.message) || 'HTTP ' + r.getResponseCode()} : j;",
+  "}",
+  "function searchNew(k, model, q) {",
+  "  var j = postGemini(k, 'interactions', {model: model, input: q, tools: [{type: 'google_search'}]}), out = {ok: true, text: '', sources: [], suggestions: ''};",
+  "  if (j.error) return j;",
+  "  (j.steps || []).forEach(function(s) {",
+  "    (s.result || []).forEach(function(r) { if (r.search_suggestions) out.suggestions = r.search_suggestions; });",
+  "    (s.content || []).forEach(function(c) {",
+  "      if (c.text) out.text += c.text;",
+  "      (c.annotations || []).forEach(function(a) { if (a.url) out.sources.push({title: a.title || a.url, uri: a.url}); });",
+  "    });",
+  "  });",
+  "  return out;",
+  "}",
+  "function searchOld(k, model, q) {",
+  "  var j = postGemini(k, 'models/' + model + ':generateContent', {contents: [{parts: [{text: q}]}], tools: [{google_search: {}}]}), out = {ok: true, text: '', sources: [], suggestions: ''};",
+  "  if (j.error) return j;",
+  "  var c = (j.candidates || [])[0] || {}, m = c.groundingMetadata || {};",
+  "  ((c.content || {}).parts || []).forEach(function(x) { if (x.text) out.text += x.text; });",
+  "  (m.groundingChunks || []).forEach(function(g) { if (g.web && g.web.uri) out.sources.push({title: g.web.title || g.web.uri, uri: g.web.uri}); });",
+  "  if (m.searchEntryPoint && m.searchEntryPoint.renderedContent) out.suggestions = m.searchEntryPoint.renderedContent;",
+  "  return out;",
+  "}",
+  "",
   '// Run this once from the editor (pick "authorize" next to Run, then press Run) so Google asks you to allow reading receipts',
   "function authorize() { DriveApp.getRootFolder(); UrlFetchApp.fetch('https://www.google.com'); }",
   '',
@@ -4453,6 +4528,12 @@ var Relay = {
   },
   // A receipt photo (base64 JPEG) for Google to read; an older script answers without a version and gets an update prompt
   // Returns {text} from Google's text reading, and {ai} when the script's Gemini AI read it (version 3 with a key)
+  search: function(prompt){
+    return this.call({action:'search', prompt:prompt, models:SEARCH_MODELS}).then(function(j){
+      if (j.ok && j.text) return j;
+      throw new Error(j.error === 'no-ai' ? 'Turn on Google\'s AI first (Settings → Sync → Smarter receipt reading).' : /quota|exhausted|rate/i.test(j.detail || '') ? 'Google\'s free search limit is used up for now. Try again later.' : 'Google couldn\'t look that up: ' + String(j.detail || j.error || 'no answer').slice(0, 140));
+    });
+  },
   ocr: function(b64, prompt){
     return this.call({action:'ocr', image:b64, mime:'image/jpeg', prompt:prompt || null, models:AI_MODELS}).then(function(j){
       if (!(+j.version >= 2)) { var e = new Error('The sync script needs a quick update to read receipts.'); e.needsUpdate = true; throw e; }
