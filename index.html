@@ -285,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261101175736' // set by tools/build.py
+  BUILD: '20261101191705' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -3956,17 +3956,19 @@ ACTIONS.adjustDelete = function(){ if (!confirmBox('Delete this adjustment?')) r
 /* ===== Nestegg — smart budget: what you really buy, and a plan that saves the most you can actually keep to ===== */
 // The numbers are worked out here, from your own history, so they can be checked and need no connection. Google's AI only adds
 // ideas on top and never changes a total. For each line: its usual month (the middle month; the average for lines that come and
-// go), how far it can come down (commitments not at all, needs a little, wants more, never past what the level allows and,
-// with enough history, towards the months you actually managed), and last month's result (a missed target is eased, a met one tightened).
-var SMART_LEVELS = [['gentle', 'Gentle', 0.05, 0.15], ['balanced', 'Balanced', 0.10, 0.30], ['max', 'Maximum', 0.15, 0.45]]; // id, name, most off a need, most off a want
+// go), the lowest it may go (commitments stay, needs a little, wants more, towards the months you actually managed, or the household's
+// own limit), and last month's result (a missed target is eased, a met one tightened). The engine (07e) then picks each line's target for the aim chosen.
+var SMART_LEVELS = [['gentle', 'Gentle', 0.15], ['balanced', 'Balanced', 0.5], ['max', 'Maximum', 1], ['goals', 'Goals on time'], ['own', 'My amount']]; // id, name, share of the effort
+var SMART_MOST_NEED = 0.15, SMART_MOST_WANT = 0.45; // the furthest a line comes down by itself
 var SMART_KEEP_GROUPS = ['g-faith', 'g-family', 'g-cover', 'g-debt', 'g-kids'];
 var SMART_KEEP = ['c-rent', 'c-medaid', 'c-carpay', 'c-carins', 'c-carlicence'];
 var SMART_WANT_GROUPS = ['g-fun', 'g-personal'];
 var SMART_WANT = ['c-ride', 'c-other', 'c-shopping'];
 
 function smartKind(c){
-  var g = catGroup(c), h = state.household || {};
+  var g = catGroup(c), h = state.household || {}, own = (h.smartLines || {})[c.id];
   if ((h.smartLocks || {})[c.id] || catPlan(c, periodKeyFor(currentPeriod())).pct) return 'keep';
+  if (own && own.kind) return own.kind;
   if (SMART_KEEP.indexOf(c.id) >= 0 || SMART_KEEP_GROUPS.indexOf(g) >= 0) return 'keep';
   return SMART_WANT.indexOf(c.id) >= 0 || SMART_WANT_GROUPS.indexOf(g) >= 0 ? 'want' : 'need';
 }
@@ -3991,13 +3993,19 @@ function lowerQuarter(a){ var s = a.slice().sort(function(x, y){ return x - y; }
 function up10(v){ return Math.ceil((v - 0.001) / 10) * 10; }
 
 function smartLevel(){ var h = state.household || {}, id = ui.smartLevel || (h.smart && h.smart.level) || 'max'; return SMART_LEVELS.filter(function(l){ return l[0] === id; })[0] || SMART_LEVELS[2]; }
+// What the dated goals still need each month, on top of what's going in, to arrive on time
+function goalsNeed(){
+  return sum(goalsOpen(), function(g){ var pace = goalPace(g); return pace && !pace.late ? Math.max(0, pace.need - goalRate(g)) : 0; });
+}
 function smartModel(level){
   var ms = smartMonths(); if (!ms.length) return null;
-  var h = state.household, cur = currentPeriod(), s = periodSummary(cur), prev = h.smart, last = ms[0], rows = [];
+  var h = state.household, cur = currentPeriod(), s = periodSummary(cur), prev = h.smart, last = ms[0], rows = [], lines = [], swaps = {};
   // how last month went against the plan in use then
   var checked = prev && prev.targets && prev.key <= periodKeyFor(last.start);
+  // a known cheaper shop is money saved with nothing given up, so the engine takes those rands first
+  purchases().gaps.forEach(function(g){ swaps[g.cat] = (swaps[g.cat] || 0) + g.saves; });
   spendCats().forEach(function(c){
-    var kind = smartKind(c), series = ms.map(function(m){ return (m.byCat[c.id] || 0) * (kind === 'keep' ? 1 : m.scale); }), now = s.budgets[c.id] || 0;
+    var kind = smartKind(c), own = (h.smartLines || {})[c.id] || {}, series = ms.map(function(m){ return (m.byCat[c.id] || 0) * (kind === 'keep' ? 1 : m.scale); }), now = s.budgets[c.id] || 0;
     var used = series.filter(function(v){ return v > 0; }).length, base = used * 2 >= series.length ? median(series) : sum(series) / series.length;
     if (!(base > 0) && !(now > 0)) return;
     // base is what's really spent; a budget nobody has spent against is never counted as spending
@@ -4009,27 +4017,48 @@ function smartModel(level){
     } else if (kind === 'keep') {
       row.target = up10(Math.max(row.base, now)); row.why = locked ? 'You locked this line' : pct ? 'Stays a % of income' : 'A commitment, so it stays';
     } else {
-      var most = kind === 'want' ? level[3] : level[2], best = lowerQuarter(series), cut = most * 0.6;
+      var most = kind === 'want' ? SMART_MOST_WANT : SMART_MOST_NEED, best = lowerQuarter(series), cut = most * 0.6;
+      row.past = ms.length >= 2 && used * 2 >= series.length; // the reason then comes from how often its target was met
       if (ms.length >= 2) {
         cut = Math.min(most, Math.max(most * 0.5, (base - best) / base));
-        row.why = used * 2 < series.length ? 'Comes and goes, so this is a monthly set-aside' : best < base * 0.97 ? 'You\'ve spent ' + fmtM(up10(best)) + ' or less here before' : 'A small trim from your usual month';
+        if (!row.past) row.why = 'Comes and goes, so this is a monthly set-aside';
       }
       else row.why = 'A first trim. It gets sharper with more months logged';
       var was = checked && prev.targets[c.id];
       if (was) {
         var got = (last.byCat[c.id] || 0) * last.scale;
-        if (got > was * 1.1) { cut *= 0.6; row.why = 'You went over last time, so this is eased'; }
-        else if (got <= was) { cut = Math.min(most, cut * 1.15); row.why = 'You kept to this last time, so it goes a little further'; }
+        if (got > was * 1.1) { cut *= 0.6; row.why = 'You went over last time, so this is eased'; row.past = false; }
+        else if (got <= was) { cut = Math.min(most, cut * 1.15); row.why = 'You kept to this last time, so it goes a little further'; row.past = false; }
       }
-      row.target = up10(base * (1 - cut)); if (row.target > base) row.target = up10(base);
-      row.save = round2(Math.max(0, base - row.target));
+      var low = up10(base * (1 - cut)); if (low > base) low = up10(base);
+      if (own.min != null) low = up10(own.min);
+      row.flex = true; row.series = series; row.mine = own.min;
+      lines.push({id:c.id, base:row.base, low:low, free:Math.min(swaps[c.id] || 0, row.base * 0.1), w:kind === 'want' ? 1 : 1.6, months:series});
     }
     rows.push(row);
+  });
+  // what each aim saves, then the targets for the one chosen
+  var L = optLadder(lines), need = goalsNeed(), bal = optSolve(L, optShare(L, 0.5)).saved, ownAmt = ui.smartOwn != null ? ui.smartOwn : h.smart && h.smart.own != null ? h.smart.own : Math.round(bal / 100) * 100;
+  if (level[0] === 'goals' && !(need > 0)) level = SMART_LEVELS[2];
+  var ask = {gentle:optShare(L, 0.15), balanced:optShare(L, 0.5), max:L.most, goals:need, own:ownAmt}, aims = {};
+  Object.keys(ask).forEach(function(k){ aims[k] = optSolve(L, ask[k]).saved; });
+  var res = optSolve(L, ask[level[0]]);
+  rows.forEach(function(r){
+    if (!r.flex) return;
+    var t = res.cuts[r.c.id], l = lines.filter(function(x){ return x.id === r.c.id; })[0];
+    r.target = t != null ? t : up10(r.base); r.save = round2(Math.max(0, r.base - r.target));
+    if (r.mine != null) r.why = 'You set the lowest at ' + fmtM(r.mine);
+    else if (!(r.save > 0)) { if (r.past || level[0] !== 'max') r.why = up10(l.low) < r.base ? 'Left alone: other lines are easier' : 'Already as low as it can go'; }
+    else if (r.past) {
+      var hit = r.series.filter(function(v){ return v <= r.target; }).length, n = r.series.length;
+      r.why = hit ? 'You\'ve spent ' + fmtM(r.target) + ' or less in ' + hit + ' of your last ' + n + ' months' : 'A stretch: lower than any of your last ' + n + ' months';
+    }
+    if (r.save > 0 && l.free >= 5) r.why +='. ' + fmtR(Math.min(l.free, r.save)) + ' of this comes from buying at the cheaper shop';
   });
   // usual and plan are real spending; held is budget kept above that, on lines with nothing logged yet or set higher than they cost
   var usual = sum(rows, function(r){ return r.base; }), saves = sum(rows, function(r){ return r.save; }), budget = sum(rows, function(r){ return r.target; }), income = s.expectedIncome;
   return {rows:rows, months:ms.length, scaled:ms.some(function(m){ return m.scale > 1.2; }), usual:round2(usual), plan:round2(usual - saves), saves:round2(saves), held:round2(budget - usual + saves),
-    freed:round2(sum(rows, function(r){ return r.freed || 0; })), income:income, left:round2(income - budget), level:level};
+    freed:round2(sum(rows, function(r){ return r.freed || 0; })), income:income, left:round2(income - budget), level:level, aims:aims, most:round2(L.most), need:need, own:ownAmt};
 }
 
 /* ---------- what you buy: everything comes from the items kept on scanned receipts ---------- */
@@ -4060,7 +4089,7 @@ function purchases(){
         if (names.length > 1) {
           var ps = names.map(function(n){ return {shop:n, price:median(shops[n])}; }).sort(function(a, b){ return a.price - b.price; }), lo = ps[0], hi = ps[ps.length - 1], d = round2(hi.price - lo.price);
           var worth = round2(d * buys.filter(function(b){ return b.shop !== lo.shop; }).length / months);
-          if (d >= 2 && d / hi.price >= 0.05 && worth >= 2) gaps.push({name:e.name, cheap:lo.shop, price:lo.price, dear:hi.shop, dearPrice:hi.price, saves:worth});
+          if (d >= 2 && d / hi.price >= 0.05 && worth >= 2) gaps.push({name:e.name, cat:e.cat, cheap:lo.shop, price:lo.price, dear:hi.shop, dearPrice:hi.price, saves:worth});
         }
         buys.sort(function(a, b){ return a.date < b.date ? -1 : 1; });
         var at = buys[buys.length - 1], before = buys.slice(0, -1).filter(function(b){ return b.shop === at.shop; }).map(function(b){ return b.a; });
@@ -4081,6 +4110,8 @@ function purchases(){
 
 /* ---------- the Smart budget screen ---------- */
 ACTIONS.smartLevel = function(el){ ui.smartLevel = el.getAttribute('data-id'); render(true); };
+ACTIONS.smartAimAt = function(el){ ui.smartLevel = 'own'; ui.smartOwn = +el.getAttribute('data-id'); render(true); };
+CHANGES.smartOwn = function(el){ ui.smartLevel = 'own'; ui.smartOwn = Math.max(0, parseAmount(el.value) || 0); render(true); };
 ACTIONS.smartWhen = function(el){ ui.smartWhen = el.getAttribute('data-id'); render(true); };
 ACTIONS.smartLock = function(el){
   var h = Object.assign({}, state.household), id = el.getAttribute('data-id'); h.smartLocks = Object.assign({}, h.smartLocks);
@@ -4090,7 +4121,7 @@ ACTIONS.smartLock = function(el){
 function smartStart(){ var cur = currentPeriod(); return (ui.smartWhen || (periodSummary(cur).dayIndex <= 10 ? 'this' : 'next')) === 'this' ? cur : nextPeriodStart(cur); }
 function smartRow(r){
   var locked = (state.household.smartLocks || {})[r.c.id];
-  return '<div class="li" data-cat="' + r.c.id + '"><div class="ico">' + r.c.emoji + '</div><div class="main"><div class="t">' + esc(r.c.name) + '</div><div class="s" style="white-space:normal">' + esc(r.why) + '</div></div>' +
+  return '<div class="li tap" data-cat="' + r.c.id + '" data-act="smartLine" data-id="' + r.c.id + '"><div class="ico">' + r.c.emoji + '</div><div class="main"><div class="t">' + esc(r.c.name) + '</div><div class="s" style="white-space:normal">' + esc(r.why) + '</div></div>' +
     '<div style="text-align:right;flex:none"><div class="strong">' + fmtR(r.target) + '</div>' + (r.save > 0 ? '<div class="tiny pos">saves ' + fmtR(r.save) + '</div>' : '') + '</div>' +
     '<button class="btn sm ghost" style="flex:none;padding:4px 6px;min-height:0" data-act="smartLock" data-id="' + r.c.id + '" aria-label="' + (locked ? 'Unlock' : 'Lock') + '">' + (locked ? '🔒' : '🔓') + '</button></div>';
 }
@@ -4102,11 +4133,11 @@ VIEWS.smart = function(){
     '<div class="muted small">Spend ' + fmtR(m.plan) + ' instead of your usual ' + fmtR(m.usual) + '. ' +
     (m.income > 0 ? (m.left >= 0 ? 'With ' + fmtR(m.income) + ' coming in, that leaves <b style="color:#fff">' + fmtR(m.left) + '</b> a month for savings and goals' + (m.held > 0 ? ', after keeping ' + fmtR(m.held) + ' budgeted on lines with nothing logged yet or set higher than they cost' : '') + '.'
       : m.income > m.plan ? 'With ' + fmtR(m.income) + ' coming in, that leaves ' + fmtR(m.income - m.plan) + ', but ' + fmtR(m.held) + ' more is budgeted on lines with nothing logged yet or set higher than they cost. Log those lines, or lower them, to see what\'s really free.'
-      : 'That\'s still ' + fmtR(m.plan - m.income) + ' more than the ' + fmtR(m.income) + ' you expect to earn.') : 'Add your income to see what\'s left for savings.') + '</div>' +
-    '<div class="seg mt">' + SMART_LEVELS.map(function(l){ return '<button class="' + (l[0] === level[0] ? 'on' : '') + '" data-act="smartLevel" data-id="' + l[0] + '">' + l[1] + '</button>'; }).join('') + '</div></div>';
+      : 'That\'s still ' + fmtR(m.plan - m.income) + ' more than the ' + fmtR(m.income) + ' you expect to earn.') : 'Add your income to see what\'s left for savings.') + '</div></div>';
+  html += aimsCard(m);
   html += '<div class="card" id="smart-trust"><div class="small muted"><b>' + (m.months >= 4 ? 'Good evidence' : m.months >= 2 ? 'Some evidence' : 'Early estimate') + ':</b> based on ' + m.months + ' month' + (m.months === 1 ? '' : 's') + ' of spending' + (m.scaled ? ', some logged only part-way and scaled up' : '') +
-    (p.slips ? ' and ' + p.slips + ' scanned slip' + (p.slips === 1 ? '' : 's') : '') + '. ' + (m.months < 3 ? 'It gets sharper every month you log. ' : '') + 'Commitments stay as they are. Tap 🔓 to protect any other line.</div></div>';
-  html += '<div class="card"><h2>Where the savings come from</h2>' + (cuts.length ? cuts.map(smartRow).join('') : '<p class="small muted">Nothing to trim at this level yet.</p>') + '</div>';
+    (p.slips ? ' and ' + p.slips + ' scanned slip' + (p.slips === 1 ? '' : 's') : '') + '. ' + (m.months < 3 ? 'It gets sharper every month you log. ' : '') + 'Each R10 comes from wherever it\'s easiest to save, judged on your own months. Commitments stay as they are. Tap any line to change how far it can go, or 🔓 to protect it.</div></div>';
+  html += '<div class="card"><h2>Where the savings come from</h2>' + (cuts.length ? cuts.map(smartRow).join('') : '<p class="small muted">Nothing to trim for this aim yet.</p>') + '</div>';
   html += whyCard(m);
   if (idle.length) html += '<div class="card" id="smart-idle"><h2>Budget you aren\'t using</h2><p class="small muted">This frees ' + fmtR(m.freed) + ' a month of budget. It isn\'t money saved, because it was never being spent, but it stops sitting on lines nobody uses.</p><details><summary class="small strong">See the ' + idle.length + ' line' + (idle.length === 1 ? '' : 's') + ', and lock any real bills</summary>' + idle.map(smartRow).join('') + '</details></div>';
   html += '<div class="card"><details id="smart-keep"><summary class="strong">Stays as it is (' + keep.length + ')</summary>' + keep.map(smartRow).join('') + '</details></div>';
@@ -4118,6 +4149,43 @@ VIEWS.smart = function(){
   return html;
 };
 function smartSavings(m){ return Math.max(0, Math.floor(m.left / 50) * 50); }
+function aimsCard(m){
+  var on = m.level[0], over = m.income > 0 ? Math.ceil((m.usual - m.income) / 10) * 10 : 0;
+  function aim(id, emoji, name, sub, off){
+    return '<div class="li' + (off ? '' : ' tap') + '" id="aim-' + id + '"' + (off ? '' : ' data-act="smartLevel" data-id="' + id + '"') + '><div class="ico">' + (on === id ? '✅' : emoji) + '</div><div class="main"><div class="t">' + name + '</div><div class="s" style="white-space:normal">' + sub + '</div></div>' +
+      (off ? '' : '<span class="amt pos">' + fmtR(m.aims[id]) + '</span>') + '</div>';
+  }
+  return '<div class="card" id="smart-aims"><h2>What should it aim for?</h2>' + aim('gentle', '🌱', 'Gentle', 'Only the easiest cuts') + aim('balanced', '⚖️', 'Balanced', 'Most of the savings for half the effort') + aim('max', '🚀', 'Maximum', 'Everything your limits allow') +
+    aim('goals', '🎯', 'Goals on time', m.need > 0 ? 'The least that gets your dated goals there' : 'No dated goal needs more right now', !(m.need > 0)) + aim('own', '✏️', 'My amount', 'You choose it, and Nestegg finds the easiest way') +
+    (on === 'own' ? '<label class="field mt" style="margin-bottom:0"><span>Save this much a month</span><input class="input" id="f-smartown" inputmode="decimal" data-change="smartOwn" value="' + esc(String(m.own)) + '"></label>' : '') +
+    (on === 'goals' && m.need > m.most ? '<p class="small neg mt">Your dated goals need ' + fmtR(m.need) + ' a month, and your limits allow ' + fmtR(m.most) + '. Tap a line below to loosen its limit, or move a date.</p>' : '') +
+    (on === 'own' && m.own > m.most ? '<p class="small neg mt">Your limits allow ' + fmtR(m.most) + ' a month. Tap a line below to let it go lower.</p>' : '') +
+    (over > 0 && m.saves < over ? '<p class="small mt">You usually spend ' + fmtR(over) + ' more than you earn, so aim for at least that.</p><button class="btn sm" data-act="smartAimAt" data-id="' + over + '">Aim for ' + fmtR(over) + '</button>' : '') + '</div>';
+}
+// How far one line can go: the household's own say beats anything Nestegg works out
+ACTIONS.smartLine = function(el){
+  var id = el.getAttribute('data-id'), kind = smartKind(cat(id)), own = (state.household.smartLines || {})[id] || {};
+  openSheet('smartLine', {id:id, kind:kind, was:kind, min:own.min != null ? String(own.min) : ''});
+};
+ACTIONS.smartLineKind = function(el){ ui.sheet.kind = el.getAttribute('data-id'); renderSheet(); };
+INPUTS.smartLineMin = function(el){ ui.sheet.min = el.value; };
+SHEETS.smartLine = function(sh){
+  var c = cat(sh.id), m = smartModel(smartLevel()), r = m && m.rows.filter(function(x){ return x.c.id === sh.id; })[0], best = r && r.series ? lowerQuarter(r.series) : 0;
+  var html = '<h2>' + c.emoji + ' ' + esc(c.name) + '</h2>' + (r ? '<div class="kpis"><div class="kpi"><div class="l">Usual</div><div class="v">' + fmtR(r.base) + '</div></div>' + (best > 0 ? '<div class="kpi"><div class="l">Your low months</div><div class="v">' + fmtR(best) + '</div></div>' : '') + '<div class="kpi"><div class="l">Plan</div><div class="v">' + fmtR(r.target) + '</div></div></div>' : '');
+  if (catPlan(c, periodKeyFor(currentPeriod())).pct) return html + '<p class="small muted">This line is a % of your income, so it stays as it is. Change it on the Budget tab.</p><button class="btn block" data-act="closeSheet">Done</button>';
+  html += '<div class="small strong mt">How should Nestegg treat it?</div><div class="seg" id="line-kind">' + [['keep', 'Fixed'], ['need', 'Need'], ['want', 'Want']].map(function(k){ return '<button class="' + (sh.kind === k[0] ? 'on' : '') + '" data-act="smartLineKind" data-id="' + k[0] + '">' + k[1] + '</button>'; }).join('') + '</div>' +
+    '<p class="small muted">' + (sh.kind === 'keep' ? 'Fixed lines are never cut.' : sh.kind === 'want' ? 'Wants are cut first.' : 'Needs are cut gently, after the wants.') + '</p>';
+  if (sh.kind !== 'keep') html += '<label class="field"><span>The lowest I\'d go (leave empty to let Nestegg decide)</span><input class="input" id="f-linemin" inputmode="decimal" data-input="smartLineMin" value="' + esc(sh.min) + '"></label>';
+  return html + '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="smartLineSave">Save</button></div>';
+};
+ACTIONS.smartLineSave = function(){
+  var sh = ui.sheet, h = Object.assign({}, state.household), lines = Object.assign({}, h.smartLines), locks = Object.assign({}, h.smartLocks), own = Object.assign({}, lines[sh.id]);
+  if (sh.kind !== sh.was) { if (sh.kind === 'keep') { locks[sh.id] = true; delete own.kind; } else { delete locks[sh.id]; own.kind = sh.kind; } }
+  var min = String(sh.min).trim() === '' ? null : parseAmount(sh.min);
+  if (min != null && min >= 0 && sh.kind !== 'keep') own.min = min; else delete own.min;
+  if (Object.keys(own).length) lines[sh.id] = own; else delete lines[sh.id];
+  h.smartLines = lines; h.smartLocks = locks; setHousehold(h); saveState(); closeSheet(); render(true);
+};
 function purchasesCard(p){
   if (!p.count) return '<div class="card" id="smart-buy"><h2>🛒 What we buy</h2><p class="small muted">Scan your till slips (＋ → 📷 Scan receipt) and every item is kept here: what you buy most, what it costs at each shop, and when prices go up.</p></div>';
   var cover = p.groceries > 0 ? Math.min(100, Math.round(p.scanned / p.groceries * 100)) : 0, top = p.items.slice(0, 8);
@@ -4175,9 +4243,9 @@ ACTIONS.smartApply = function(){
     if (r.target === (cur[r.c.id] || 0)) return;
     before[r.c.id] = catPlan(r.c, key); upsert('categories', withCatPlan(r.c, key, {amount:r.target})); n++;
   });
-  h.smart = {level:level[0], key:key, on:todayStr(), targets:targets, before:before, savingsBefore:h.savingsTarget || 0, goals:goalShares(m.saves, ui.smartFocus)};
+  h.smart = {level:m.level[0], own:m.own, key:key, on:todayStr(), targets:targets, before:before, savingsBefore:h.savingsTarget || 0, goals:goalShares(m.saves, ui.smartFocus)};
   if (m.left > 0) h.savingsTarget = smartSavings(m);
-  setHousehold(h); saveState(); ui.smartLevel = null; ui.smartFocus = null; go('budget'); ui.period = start; render(); toast('Budget updated: ' + n + ' line' + (n === 1 ? '' : 's') + ' changed');
+  setHousehold(h); saveState(); ui.smartLevel = null; ui.smartOwn = null; ui.smartFocus = null; go('budget'); ui.period = start; render(); toast('Budget updated: ' + n + ' line' + (n === 1 ? '' : 's') + ' changed');
 };
 ACTIONS.smartUndo = function(){
   var h = Object.assign({}, state.household), s = h.smart; if (!s || !s.before) return;
@@ -4314,6 +4382,60 @@ SHEETS.priceCheck = function(sh){
     (sh.chips ? '<iframe id="price-chips" title="Google search suggestions" sandbox="allow-popups allow-popups-to-escape-sandbox" style="width:100%;height:64px;border:0;margin-top:8px" srcdoc="' + esc('<base target="_blank">' + sh.chips) + '"></iframe>' : '') +
     '<p class="tiny muted mt">From a live Google search. Online prices can be out of date or wrong, and this isn\'t saved or used in your budget.</p><button class="btn block" data-act="closeSheet">Done</button>';
 };
+
+/* ===== Nestegg — the optimisation engine: any amount saved, for the least effort ===== */
+// Each line is a ladder of R10 steps, from what's usually spent down to the lowest it may go. Every step has a difficulty: how far down
+// the line it is and, with three months or more, how many past months were above it. Needs weigh more than wants, and the first rands
+// of a known cheaper shop cost nothing. Difficulty only rises going down a line, so taking the cheapest steps across all lines first
+// is the true optimum, not a rule of thumb (test/optimise_test.js checks it against trying every combination).
+// Plain arithmetic with no other Nestegg code in it: it runs offline and gives the same answer every time.
+var OPT_SMALL = 50; // a cut under this isn't worth changing a line for
+
+function optLadder(lines){
+  var steps = [], saved = 0, effort = 0;
+  lines.forEach(function(l, i){
+    var low = Math.ceil((l.low - 0.001) / 10) * 10, room = l.base - low, free = Math.min(l.free || 0, room), t = Math.ceil((l.base - 0.001) / 10) * 10 - 10, was = 0, n = 0;
+    if (!(room > 0)) return;
+    for (; t >= low; t -= 10) {
+      var cut = l.base - t; if (cut <= 0) continue;
+      var depth = free < room ? Math.max(0, cut - free) / (room - free) : 0, above = 0;
+      l.months.forEach(function(v){ if (v > t) above++; });
+      var miss = l.months.length >= 3 ? above / l.months.length : depth;
+      steps.push({id:l.id, i:i, n:n++, t:t, a:cut - was, d:cut <= free ? 0 : l.w * (depth + miss) / 2}); was = cut;
+    }
+  });
+  steps.sort(function(a, b){ return a.d - b.d || a.i - b.i || a.n - b.n; });
+  steps.forEach(function(s){ saved += s.a; effort += s.a * s.d; s.saved = saved; s.effort = effort; });
+  return {steps:steps, most:saved, effort:effort};
+}
+// What the given share of the whole effort buys. The cheapest rands come first, so it's always far more than that share of the savings.
+function optShare(L, share){
+  var got = 0;
+  for (var i = 0; i < L.steps.length && L.steps[i].effort <= L.effort * share + 0.0001; i++) got = L.steps[i].saved;
+  return got;
+}
+function optTake(L, amount, off){
+  var saved = 0, effort = 0, cuts = {}, sizes = {};
+  for (var i = 0; i < L.steps.length && saved < amount - 0.005; i++) {
+    var s = L.steps[i]; if (off[s.id]) continue;
+    saved += s.a; effort += s.a * s.d; cuts[s.id] = s.t; sizes[s.id] = (sizes[s.id] || 0) + s.a;
+  }
+  return {saved:saved, effort:effort, cuts:cuts, sizes:sizes};
+}
+// The easiest way to save at least this much. A cut too small to bother with goes back and is taken from a line already changing.
+function optSolve(L, amount){
+  var want = Math.min(amount, L.most), off = {}, best = null, res;
+  for (;;) {
+    res = optTake(L, want, off);
+    if (res.saved < want - 0.005) return best;
+    best = res;
+    if (want >= L.most - 0.005) return best;
+    var small = null;
+    Object.keys(res.sizes).forEach(function(id){ if (res.sizes[id] < OPT_SMALL && (small === null || res.sizes[id] < res.sizes[small])) small = id; });
+    if (small === null) return best;
+    off[small] = true;
+  }
+}
 
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
