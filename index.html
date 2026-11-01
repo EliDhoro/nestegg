@@ -300,7 +300,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261101215220' // set by tools/build.py
+  BUILD: '20261101221632' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips'];
@@ -2333,7 +2333,7 @@ VIEWS.settings = function(){
   // rules
   var rules = live('rules');
   html += '<div class="card"><h2>🤖 Auto-categorise rules</h2><p class="small muted">Learned when you change a category on an imported transaction.</p>' +
-    (rules.length ? '<div class="list">' + rules.map(function(r){ return '<div class="li"><div class="ico">' + cat(r.categoryId).emoji + '</div><div class="main"><div class="t">' + esc(r.pattern) + '</div><div class="s">→ ' + esc(cat(r.categoryId).name) + '</div></div><button class="btn sm ghost" data-act="delRule" data-id="' + r.id + '">✕</button></div>'; }).join('') + '</div>'
+    (rules.length ? '<div class="list">' + rules.map(function(r){ var kind = r.type ? SORT_TYPES[r.type] : null; return '<div class="li"><div class="ico">' + (kind ? kind[0] : cat(r.categoryId).emoji) + '</div><div class="main"><div class="t">' + esc(r.pattern) + '</div><div class="s">→ ' + esc(kind ? kind[1] : cat(r.categoryId).name) + '</div></div><button class="btn sm ghost" data-act="delRule" data-id="' + r.id + '">✕</button></div>'; }).join('') + '</div>'
       : '<p class="small muted">None yet.</p>') + '</div>';
   // appearance
   html += '<div class="card"><h2>🎨 Appearance</h2><div class="seg">' + [['auto','Auto'],['light','Light'],['dark','Dark']].map(function(t){ return '<button class="' + (device.theme === t[0] ? 'on' : '') + '" data-act="setTheme" data-id="' + t[0] + '">' + t[1] + '</button>'; }).join('') + '</div>' +
@@ -2471,11 +2471,17 @@ function learnRule(raw, categoryId){
   var id = 'r-' + k.replace(/[^A-Z0-9]+/g, '-').toLowerCase();
   upsert('rules', {id:id, pattern:k, categoryId:categoryId});
 }
+// Transfers, savings and income are remembered too, or the same line asks again every month. Only for the direction answered.
+function learnKind(raw, type, dir){
+  var k = merchantKey(raw); if (k.length < 3) return;
+  upsert('rules', {id:'r-' + k.replace(/[^A-Z0-9]+/g, '-').toLowerCase() + '-' + dir, pattern:k, type:type, dir:dir, categoryId:null});
+}
 function hasAny(text, words){ for (var i=0;i<words.length;i++) if (text.indexOf(words[i]) >= 0) return true; return false; }
 function classify(desc, amt){
   var d = ' ' + String(desc || '').toLowerCase() + ' ', key = merchantKey(desc), up = String(desc || '').toUpperCase();
   var rules = live('rules');
   for (var i=0;i<rules.length;i++) if (key.indexOf(rules[i].pattern) >= 0 || up.indexOf(rules[i].pattern) >= 0) {
+    if (rules[i].type) { if (rules[i].dir === (amt < 0 ? 'out' : 'in')) return {type:rules[i].type, categoryId:null, flag:false}; continue; }
     return amt < 0 ? {type:'expense', categoryId:rules[i].categoryId, flag:false} : {type:'income', categoryId:null, flag:false};
   }
   if (amt > 0) {
@@ -2700,6 +2706,7 @@ function buildPreview(parsed, fileNames){
   rows.sort(function(a,b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
   var imp = {rows:rows, files:fileNames, memberId:me().id, accountId:defaultAccountFor(me().id, 'card'), show:'all'};
   handMatch(imp);
+  if (sortRestore(imp)) toast('Picked up the ' + imp.sortDone + ' you\'d already sorted');
   return imp;
 }
 // Entries typed in by hand (or scanned) that a bank line is the same payment as: same account, amount and direction,
@@ -2732,14 +2739,16 @@ VIEWS['import'] = function(){
       '<div class="card span2"><h2>Excel file?</h2><p class="small muted">Open it in Excel or Google Sheets and use <b>Save as / Download → CSV</b>, then choose that file here.</p></div></div>';
     return html;
   }
+  if (imp.sort) return sortHtml(imp);
   var rows = imp.rows, inc = rows.filter(function(r){ return r.include; }), dups = rows.filter(function(r){ return r.dup; }).length, flags = rows.filter(function(r){ return r.flag && r.include; }).length;
-  var byHand = rows.filter(function(r){ return r.hand && !r.include; }).length, accs = accounts();
+  var byHand = rows.filter(function(r){ return r.hand && !r.include; }).length, accs = accounts(), toSort = sortGroups(imp), sortLines = sum(toSort, function(g){ return g.rows.length; });
   var dates = rows.map(function(r){ return r.date; }).sort();
   html += '<div class="card"><div class="row between wrap"><div><div class="strong">' + rows.length + ' transactions found</div><div class="small muted">' + (dates.length ? fmtDate(dates[0], true) + ' – ' + fmtDate(dates[dates.length-1], true) : '') +
     (dups ? ' · ' + dups + ' already imported (skipped)' : '') + (byHand ? ' · ' + byHand + ' already logged by hand (skipped)' : '') + '</div></div>' +
     (accs.length ? '<div class="row"><span class="small muted">Which account?</span><select class="input" style="width:auto" data-change="impAcc">' + accs.map(function(a){ return '<option value="' + a.id + '"' + (imp.accountId === a.id ? ' selected' : '') + '>' + esc(accountLabel(a)) + '</option>'; }).join('') + '</select></div>'
       : '<div class="row"><span class="small muted">Whose account?</span><select class="input" style="width:auto" data-change="impWho">' + members().map(function(m){ return '<option value="' + m.id + '"' + (imp.memberId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select></div>') + '</div>' +
     (flags ? '<div class="nudge gold" style="cursor:default"><div class="e">👀</div><div><div class="t">' + flags + ' need a quick look</div><div class="small muted">Highlighted rows are guesses — mostly transfers between your own accounts (choose "Transfer" so they don\'t count as income or spending). Fix one shop and the same shop updates everywhere.</div></div></div>' : '') +
+    (toSort.length ? '<button class="btn primary block mt" id="sort-start" data-act="sortStart">👆 Swipe to sort ' + toSort.length + ' shop' + (toSort.length === 1 ? '' : 's') + ' (' + sortLines + ' line' + (sortLines === 1 ? '' : 's') + ')</button>' : '') +
     '<div class="chips mt"><button class="chip ' + (imp.show === 'all' ? 'on' : '') + '" data-act="impShow" data-id="all">All</button><button class="chip ' + (imp.show === 'flag' ? 'on' : '') + '" data-act="impShow" data-id="flag">Needs a look (' + flags + ')</button><button class="chip ' + (imp.show === 'other' ? 'on' : '') + '" data-act="impShow" data-id="other">Uncategorised</button></div></div>';
   var shown = rows.map(function(r, i){ return {r:r, i:i}; }).filter(function(x){ return imp.show === 'flag' ? x.r.flag && x.r.include : imp.show === 'other' ? x.r.type === 'expense' && x.r.categoryId === 'c-other' : true; });
   var catOpts = spendCats();
@@ -2777,8 +2786,8 @@ ACTIONS.mapGo = function(){
   if (!parsed.length) { toast('No transactions found with those columns'); return; }
   ui.imp = buildPreview(parsed, mp.files); render();
 };
-ACTIONS.impBack = function(){ if (ui.imp && ui.imp.rows && !confirmBox('Leave without importing?')) return; ui.imp = null; ui.view = null; render(); };
-ACTIONS.impCancel = function(){ ui.imp = null; render(); };
+ACTIONS.impBack = function(){ if (ui.imp && ui.imp.rows && !confirmBox('Leave without importing?')) return; sortForget(); ui.imp = null; ui.view = null; render(); };
+ACTIONS.impCancel = function(){ sortForget(); ui.imp = null; render(); };
 ACTIONS.impShow = function(el){ ui.imp.show = el.getAttribute('data-id'); render(true); };
 ACTIONS.impMore = function(){ ui.imp.limit = (ui.imp.limit || 300) + 300; render(true); };
 CHANGES.impWho = function(el){ ui.imp.memberId = el.value; };
@@ -2829,6 +2838,7 @@ ACTIONS.impGo = function(){
       if (i === 0) { h.importKey = r.key; h.raw = h.raw || r.desc; } if (imp.accountId) h.accountId = imp.accountId; upsert('tx', h); }); return; }
     if (!r.include || r.dup) return;
     if (r.touched && r.type === 'expense' && r.categoryId && r.categoryId !== 'c-other') { var k = merchantKey(r.desc); if (!learned[k]) { learnRule(r.desc, r.categoryId); learned[k] = 1; } }
+    if (r.touched && (r.type === 'ignore' || r.type === 'saving' || r.type === 'income')) learnKind(r.desc, r.type, r.amount > 0 ? 'in' : 'out');
     // a refund is money back on a spending line: stored as a negative expense
     var refund = r.type === 'refund';
     var tx = {id:'t-' + uid(), date:r.date, amount:refund ? -Math.abs(r.amount) : Math.abs(r.amount), type:refund ? 'expense' : r.type, categoryId:r.type === 'expense' || refund ? (r.categoryId || 'c-other') : null, goalId:null,
@@ -2836,7 +2846,7 @@ ACTIONS.impGo = function(){
       accountId:imp.accountId || null, dir:r.amount > 0 ? 'in' : 'out'};
     upsert('tx', tx); n++;
   });
-  saveState(); ui.imp = null; ui.view = null; ui.tab = 'budget'; render(); window.scrollTo(0,0);
+  sortForget(); saveState(); ui.imp = null; ui.view = null; ui.tab = 'budget'; render(); window.scrollTo(0,0);
   celebrate(before);
   openSheet('imported', {n:n});
 };
@@ -4658,7 +4668,7 @@ function tripFly(yes){
   var mark = el.querySelector(yes ? '.stamp.yes' : '.stamp.no'); if (mark) mark.style.opacity = 1;
   el.style.transition = 'transform .2s ease-in';
   el.style.transform = 'translateX(' + (yes ? 140 : -140) + 'vw) rotate(' + (yes ? 24 : -24) + 'deg)';
-  setTimeout(function(){ tripFlying = false; tripDecide(yes); }, 190);
+  setTimeout(function(){ tripFlying = false; if (ui.view === 'import') sortDecide(yes); else tripDecide(yes); }, 190);
 }
 ACTIONS.tripYes = function(){ tripFly(true); };
 ACTIONS.tripNo = function(){ tripFly(false); };
@@ -4821,6 +4831,122 @@ function tripHomeCard(){
     (t ? '<div class="strong">' + esc(t.place || 'Shopping') + ': ' + fmtM(t.budget) + ' mini budget</div><div class="small muted">' + t.items.length + ' item' + (t.items.length === 1 ? '' : 's') + ' planned. Tap to tick them off.</div>'
       : '<div class="strong">Going shopping or out?</div><div class="small muted">Swipe through it first and leave with a mini budget.</div>') + '</div></div></div>';
 }
+
+/* ===== Nestegg — sorting statement lines by swiping: one card per shop, so one swipe settles every line from it ===== */
+// Works on the import preview (ui.imp.rows). Nothing is saved until Import, but each answer is kept in device.impSorted too, so a phone
+// that reloads the app mid-way loses nothing: choosing the statement again picks the answers back up. Lines already skipped (imported
+// before, logged by hand, unticked) are never shown. Right accepts Nestegg's guess, left opens the choices.
+var SORT_TYPES = {ignore:['↔️', 'Transfer between accounts'], income:['💰', 'Income'], saving:['🏦', 'Saved']};
+
+function sortKey(r){ return (merchantKey(r.desc) || r.desc.toUpperCase()) + (r.amount > 0 ? '|in' : '|out'); }
+function sortNeeds(r){ return r.include && !r.dup && !r.touched && !r.sorted && (r.flag || (r.type === 'expense' && r.categoryId === 'c-other')); }
+// The busiest shop first: it settles the most lines for one swipe
+function sortGroups(imp){
+  var map = {}, list = [];
+  imp.rows.forEach(function(r, i){
+    if (!sortNeeds(r)) return;
+    var k = sortKey(r), g = map[k];
+    if (!g) { g = map[k] = {key:k, rows:[], total:0, first:r, out:r.amount < 0}; list.push(g); }
+    g.rows.push(i); g.total = round2(g.total + Math.abs(r.amount));
+  });
+  return list.sort(function(a, b){ return b.rows.length - a.rows.length || b.total - a.total || (a.key < b.key ? -1 : 1); });
+}
+// What the same shop was filed under before, when the statement's own words give no clue
+function sortPast(g){
+  var key = merchantKey(g.first.desc), seen = {}, best = null;
+  if (!g.out || key.length < 3) return null;
+  live('tx').forEach(function(t){
+    if (t.type !== 'expense' || !t.categoryId || t.categoryId === 'c-other' || merchantKey(t.raw || t.note || '') !== key) return;
+    seen[t.categoryId] = (seen[t.categoryId] || 0) + 1;
+    if (!best || seen[t.categoryId] > seen[best]) best = t.categoryId;
+  });
+  return best;
+}
+function sortGuess(g){
+  var r = g.first, past = sortPast(g);
+  if (r.type !== 'expense' && r.type !== 'refund') return {type:r.type, categoryId:null};
+  if (r.categoryId !== 'c-other') return {type:r.type, categoryId:r.categoryId};
+  return past ? {type:r.type, categoryId:past, past:true} : {type:r.type, categoryId:'c-other', blank:true};
+}
+function sortLabel(d){
+  if (d.type === 'expense' || d.type === 'refund') { var c = cat(d.categoryId); return c.emoji + ' ' + c.name; }
+  return SORT_TYPES[d.type] ? SORT_TYPES[d.type][0] + ' ' + SORT_TYPES[d.type][1] : d.type;
+}
+function sortCardHtml(g){
+  var guess = sortGuess(g), n = g.rows.length;
+  return '<div class="swcard under"></div><div class="swcard top" id="swcard"><span class="stamp yes">YES</span><span class="stamp no">CHANGE</span>' +
+    '<div class="tiny muted strong">' + n + ' LINE' + (n === 1 ? '' : 'S') + ', ' + fmtM(g.total) + (g.out ? ' OUT' : ' IN') + '</div><div class="strong" style="font-size:22px">' + esc(prettyMerchant(g.first.desc)) + '</div><div class="tiny muted">' + esc(g.first.desc.slice(0, 70)) + '</div>' +
+    (guess.blank ? '<div class="mid-num" style="margin:8px 0 0;font-size:20px">Nestegg doesn\'t know this one</div><div class="small muted">Swipe left to choose, or right to leave it as Other</div>'
+      : '<div class="small muted" style="margin-top:8px">Nestegg thinks this is</div><div class="mid-num" style="margin:0;font-size:22px">' + esc(sortLabel(guess)) + '</div>' + (guess.past ? '<div class="small muted">From your past entries</div>' : '')) + '</div>';
+}
+function sortLive(imp){
+  var list = sortGroups(imp), g = list[0], lines = sum(list, function(x){ return x.rows.length; }), done = imp.sortDone || 0, all = done + list.length;
+  if (!g) return '';
+  return '<div id="trip-meter" style="margin:0 4px 12px"><div class="row between small"><span class="strong">' + done + ' of ' + all + ' sorted</span><span class="muted">' + lines + ' line' + (lines === 1 ? '' : 's') + ' to go</span></div><div class="bar" style="margin-top:6px"><i style="width:' + (done / all * 100) + '%"></i></div></div>' +
+    '<div class="deck">' + sortCardHtml(g) + '</div><div class="swbtns"><button class="swbtn" id="sw-no" data-act="sortNo" aria-label="Change">✕</button>' +
+    '<button class="swbtn small-one" id="sw-undo" data-act="sortUndo" aria-label="Undo"' + ((imp.sortPast || []).length ? '' : ' disabled') + '>↩</button><button class="swbtn" id="sw-yes" data-act="sortYes" aria-label="Yes">✓</button></div>' +
+    '<div class="center mt"><button class="btn sm ghost" data-act="sortStop">Back to the full list</button></div>';
+}
+function sortHtml(imp){
+  return topbar('Sort your statement', 'Right if it\'s correct, left to change it', {back:true, backAct:'sortStop', right:' '}) + '<div id="trip-live">' + sortLive(imp) + '</div>';
+}
+function sortShow(imp){
+  if (sortGroups(imp).length) { var el = $('#trip-live'); if (el) el.innerHTML = sortLive(imp); return; }
+  imp.sort = false; render(true); window.scrollTo(0, 0); toast('All sorted. Check the list, then import');
+}
+// One answer onto one line. The row stays a normal preview row, so the full list shows it and Import treats it like any other.
+function sortApply(r, d){
+  r.type = d.type; if (d.categoryId) r.categoryId = d.categoryId;
+  r.include = d.include !== false; r.flag = false; r.touched = true; r.sorted = true;
+}
+function sortAnswer(d){
+  var imp = ui.imp, g = sortGroups(imp)[0]; if (!g) return;
+  (imp.sortPast = imp.sortPast || []).push({key:g.key, rows:g.rows.map(function(i){ var r = imp.rows[i]; return {i:i, type:r.type, categoryId:r.categoryId, flag:r.flag, include:r.include}; })});
+  g.rows.forEach(function(i){ sortApply(imp.rows[i], d); });
+  imp.sortDone = (imp.sortDone || 0) + 1;
+  device.impSorted = device.impSorted || {}; device.impSorted[g.key] = d; saveDevice();
+  sortShow(imp);
+}
+function sortDecide(yes){
+  var imp = ui.imp, g = sortGroups(imp)[0]; if (!g) return;
+  if (yes) { var guess = sortGuess(g); sortAnswer({type:guess.type, categoryId:guess.categoryId}); return; }
+  sortShow(imp); openSheet('sortPick', {out:g.out, name:prettyMerchant(g.first.desc), lines:g.rows.length});
+}
+ACTIONS.sortStart = function(){ ui.imp.sort = true; render(true); window.scrollTo(0, 0); };
+ACTIONS.sortStop = function(){ ui.imp.sort = false; render(true); window.scrollTo(0, 0); };
+ACTIONS.sortYes = function(){ tripFly(true); };
+ACTIONS.sortNo = function(){ tripFly(false); };
+ACTIONS.sortUndo = function(){
+  var imp = ui.imp, last = (imp.sortPast || []).pop(); if (!last) return;
+  last.rows.forEach(function(o){ var r = imp.rows[o.i]; r.type = o.type; r.categoryId = o.categoryId; r.flag = o.flag; r.include = o.include; r.touched = false; r.sorted = false; });
+  imp.sortDone--; delete device.impSorted[last.key]; saveDevice(); sortShow(imp);
+};
+// The lines this household uses most come first
+function sortCats(){
+  var used = {};
+  live('tx').forEach(function(t){ if (t.type === 'expense' && t.categoryId) used[t.categoryId] = (used[t.categoryId] || 0) + 1; });
+  return spendCats().slice().sort(function(a, b){ return (used[b.id] || 0) - (used[a.id] || 0); });
+}
+SHEETS.sortPick = function(sh){
+  function pick(type, emoji, name, id){ return '<button class="chip" data-act="sortPicked" data-type="' + type + '"' + (id ? ' data-id="' + id + '"' : '') + '>' + emoji + ' ' + esc(name) + '</button>'; }
+  var lines = sortCats().map(function(c){ return pick(sh.out ? 'expense' : 'refund', c.emoji, c.name, c.id); }).join('');
+  return '<h2>' + esc(sh.name) + '</h2><p class="small muted" style="margin-top:-6px">' + sh.lines + ' line' + (sh.lines === 1 ? '' : 's') + ' on this statement</p>' +
+    '<div class="chips">' + (sh.out ? '' : pick('income', '💰', 'Income')) + pick('ignore', '↔️', 'Transfer between accounts') + (sh.out ? pick('saving', '🏦', 'Saved') : '') + pick('skip', '🚫', 'Don\'t import') + '</div>' +
+    '<div class="small strong mt" style="margin-bottom:6px">' + (sh.out ? 'Spending on' : 'A refund on') + '</div><div class="chips" id="sort-lines" style="max-height:44vh;overflow:auto">' + lines + '</div>' +
+    '<button class="btn block mt" data-act="closeSheet">Cancel</button>';
+};
+ACTIONS.sortPicked = function(el){
+  var type = el.getAttribute('data-type'), id = el.getAttribute('data-id') || null, d = type === 'skip' ? {type:ui.imp.rows[sortGroups(ui.imp)[0].rows[0]].type, include:false} : {type:type, categoryId:id};
+  closeSheet(); sortAnswer(d);
+};
+// Answers from before a reload, for the same shops, when the statement is chosen again
+function sortRestore(imp){
+  var done = device.impSorted || {}, keys = {};
+  imp.rows.forEach(function(r){ var d = done[sortKey(r)]; if (d && sortNeeds(r)) { sortApply(r, d); keys[sortKey(r)] = 1; } });
+  imp.sortDone = Object.keys(keys).length;
+  return imp.sortDone;
+}
+function sortForget(){ if (device.impSorted) { device.impSorted = null; saveDevice(); } }
 
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
