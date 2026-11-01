@@ -285,7 +285,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261030155631' // set by tools/build.py
+  BUILD: '20261101173836' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons'];
@@ -4277,6 +4277,12 @@ function pricePrompt(name){
   return noNames('What is the current shelf price in South Africa of: ' + name + '? Look at South African retailers such as Checkers, Shoprite, Pick n Pay, Woolworths, Spar, Makro and Dis-Chem where they sell it. ' +
     'Answer as a short list: shop, price in rand, pack size. Only give prices you found on a page. If you can\'t find a recent price, say so instead of estimating.');
 }
+// The free way that always works: a normal Google search of each shop's own site, opened in the browser. Nothing is read or kept.
+function shopLinks(name){
+  function link(label, q){ return '<a class="btn sm" target="_blank" rel="noopener noreferrer" href="https://www.google.com/search?q=' + encodeURIComponent(q) + '">' + esc(label) + '</a>'; }
+  return '<div class="small strong mt">Look it up yourself</div><p class="small muted">Opens a normal Google search of each shop\'s website.</p><div class="btns" id="price-shops" style="flex-wrap:wrap">' +
+    [['Checkers', 'checkers.co.za'], ['Shoprite', 'shoprite.co.za'], ['Pick n Pay', 'pnp.co.za'], ['Woolworths', 'woolworths.co.za']].map(function(s){ return link(s[0], name + ' price site:' + s[1]); }).join('') + link('All shops', name + ' price South Africa') + '</div>';
+}
 function priceCheck(name){
   name = String(name || '').trim().slice(0, 80); if (!name) { toast('Type an item first'); return; }
   if (!device.aiOn) { closeSheet(); ACTIONS.openAiSetup(); toast('Turn on Google\'s AI first'); return; }
@@ -4294,7 +4300,7 @@ SHEETS.priceCheck = function(sh){
   var html = '<h2>🔎 ' + esc(sh.name) + '</h2>';
   if (sh.old) return html + '<p class="small muted">Checking prices online needs a quick update to your sync script. It takes about 3 minutes, on the computer, and your budget isn\'t touched.</p><button class="btn primary block" data-act="openRelayUpdate">Show me how</button>';
   if (sh.busy) return html + '<p class="small"><span class="spinner"></span> Searching with Google…</p>';
-  if (sh.error) return html + '<p class="small neg" id="price-error">' + esc(sh.error) + '</p><button class="btn block" data-act="closeSheet">Close</button>';
+  if (sh.error) return html + '<p class="small neg" id="price-error">' + esc(sh.error) + '</p>' + shopLinks(sh.name) + '<button class="btn block mt" data-act="closeSheet">Close</button>';
   var seen = {}, links = sh.sources.filter(function(s){ if (!/^https:\/\//.test(s.uri) || seen[s.uri]) return false; seen[s.uri] = 1; return true; });
   return html + '<div class="small" id="price-answer" style="white-space:pre-wrap">' + esc(sh.text) + '</div>' +
     (links.length ? '<div class="small strong mt">Sources</div>' + links.slice(0, 6).map(function(s){ return '<div class="small" style="padding:2px 0"><a href="' + esc(s.uri) + '" target="_blank" rel="noopener noreferrer">' + esc(s.title) + '</a></div>'; }).join('') : '') +
@@ -4370,7 +4376,7 @@ var Drive = {
 // No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
 // so a device that missed something merges first and tries again — nobody's changes get overwritten.
 var SCRIPT_VERSION = 5, AI_SCRIPT = 4; // the newest RELAY_SCRIPT (keep in step with its VERSION line), and the oldest that can use an AI key
-var SEARCH_MODELS = ['gemini-2.5-flash']; // the one model with free Google Search; the script tries what this lists
+var SEARCH_MODELS = ['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']; // tried in turn by the script, so this can change without a redeploy. Keys made after mid-2026 can't use gemini-2.5-flash
 // Gemini models to try, newest first; sent with each request so a renamed model only needs an app update
 var AI_MODELS = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
 var RELAY_SCRIPT = [
@@ -4531,7 +4537,8 @@ var Relay = {
   search: function(prompt){
     return this.call({action:'search', prompt:prompt, models:SEARCH_MODELS}).then(function(j){
       if (j.ok && j.text) return j;
-      throw new Error(j.error === 'no-ai' ? 'Turn on Google\'s AI first (Settings → Sync → Smarter receipt reading).' : /quota|exhausted|rate/i.test(j.detail || '') ? 'Google\'s free search limit is used up for now. Try again later.' : 'Google couldn\'t look that up: ' + String(j.detail || j.error || 'no answer').slice(0, 140));
+      var d = String(j.detail || j.error || 'no answer');
+      throw new Error(j.error === 'no-ai' ? 'Turn on Google\'s AI first (Settings → Sync → Smarter receipt reading).' : /no longer available|not available|not found|limit: ?0|billing|free.?tier/i.test(d) ? 'Google\'s free plan doesn\'t include this search for your key.' : /quota|exhausted|rate/i.test(d) ? 'Google\'s free search limit is used up for now. Try again later.' : 'Google couldn\'t look that up: ' + d.slice(0, 140));
     });
   },
   ocr: function(b64, prompt){
