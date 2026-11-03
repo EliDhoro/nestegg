@@ -291,6 +291,13 @@ table.tbl{border-collapse:collapse;width:100%;font-size:13.5px}
 @media (prefers-reduced-motion:reduce){.vmic.on{animation:none}}
 .vb:empty{display:none}
 
+/* rewards: opening an envelope */
+.env-pop{animation:envpop .5s cubic-bezier(.2,1.6,.4,1) both}
+.env-in{animation:envin .4s ease .35s both}
+@keyframes envpop{0%{transform:scale(.3) rotate(-12deg);opacity:0}100%{transform:none;opacity:1}}
+@keyframes envin{0%{transform:translateY(10px);opacity:0}100%{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){.env-pop,.env-in{animation:none}}
+
 </style>
 </head>
 <body>
@@ -310,7 +317,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261102004731' // set by tools/build.py
+  BUILD: '20261103151538' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips'];
@@ -593,6 +600,7 @@ function createHousehold(opts){
     createdOn: todayStr()
   };
   setHousehold(h);
+  state.household.rewardsFrom = currentPeriod();
   var totalIncome = (+opts.income1||0) + (+opts.income2||0);
   DEFAULT_CATEGORIES.forEach(function(d, i){
     var b = opts.quickBudget && totalIncome ? Math.round(totalIncome * d[4] / 100 / 50) * 50 : 0;
@@ -799,21 +807,22 @@ function nextTier(points){
 function pointsFor(start){
   return memo('pts:' + start, function(){
     var end = periodEndFor(start), t = todayStr(), last = end < t ? end : t;
-    var items = [], total = 0;
-    function add(label, pts, e){ if (pts > 0) { items.push({label:label, pts:pts, e:e}); total += pts; } }
+    var items = [], total = 0, fresh = rewardNew(start);
+    function add(key, label, pts, e){ if (pts > 0) { items.push({key:key, label:label, pts:pts, e:e}); total += pts; } }
     var ms = members();
     ms.forEach(function(m){
       var n = 0, d;
       for (d = start; d <= last; d = addDays(d, 1)) if (didCheckIn(m.id, d)) n++;
-      add('Daily check-ins · ' + m.name + ' (' + n + ' day' + (n===1?'':'s') + ')', n * 10, '🔥');
+      add('checkin', 'Daily check-ins · ' + m.name + ' (' + n + ' day' + (n===1?'':'s') + ')', n * 10, '🔥');
       var st = memberStreak(m.id), bonus = 0;
-      Object.keys(st.milestones).forEach(function(k){ if (k >= start && k <= end) bonus += 30; });
-      add('Streak milestones · ' + m.name, bonus, '⭐');
+      // from the new rewards on, each 7 days in a row is a surprise envelope rather than a fixed amount
+      Object.keys(st.milestones).forEach(function(k){ if (k >= start && k <= end) bonus += fresh ? envelopePts(m.id, k) : 30; });
+      add('streak', (fresh ? 'Streak envelopes · ' : 'Streak milestones · ') + m.name, bonus, fresh ? '🧧' : '⭐');
     });
     if (ms.length > 1) {
       var c = 0, d2;
       for (d2 = start; d2 <= last; d2 = addDays(d2, 1)) if (bothCheckedIn(d2)) c++;
-      add('Both checked in (' + c + ' day' + (c===1?'':'s') + ')', c * 5, '💞');
+      add('both', 'Both checked in (' + c + ' day' + (c===1?'':'s') + ')', c * 5, '💞');
     }
     var began = state.household && state.household.createdOn || start;
     var txs = txBetween(start, end), skipPts = 0, savePts = 0, early = 0, imported = false;
@@ -826,11 +835,11 @@ function pointsFor(start){
       }
     });
     live('tx').forEach(function(x){ if (x.source === 'import' && x.createdOn >= start && x.createdOn <= end) imported = true; });
-    add('Skipped purchases', skipPts, '💪');
-    add('Money moved to savings', savePts, '🏦');
-    add('Paid yourselves first (saved in first 5 days)', early * 25, '🚀');
+    add('skip', 'Skipped purchases', skipPts, '💪');
+    add('save', 'Money moved to savings', savePts, '🏦');
+    add('early', 'Paid yourselves first (saved in first 5 days)', early * 25, '🚀');
     var md = live('moneyDates').filter(function(x){ return x.date >= start && x.date <= end; }).length;
-    add('Money dates (' + md + ')', md * 50, '☕');
+    add('date', 'Money dates (' + md + ')', md * 50, '☕');
     var s = periodSummary(start), weekly = s.budgeted * 7 / s.days, weeks = 0;
     if (s.budgeted > 0) {
       for (var w = 0; ; w++) {
@@ -841,15 +850,43 @@ function pointsFor(start){
         if (spentW <= weekly) weeks++;
       }
     }
-    add('Weeks under budget (' + weeks + ')', weeks * 40, '🎯');
-    add('Imported bank statements', imported ? 20 : 0, '📄');
+    add('week', 'Weeks under budget (' + weeks + ')', weeks * 40, '🎯');
+    add('import', 'Imported bank statements', imported ? 20 : 0, '📄');
     var checks = {}; live('recons').forEach(function(r){ var d = r.on || r.asOf; if (r.balanced !== false && d >= start && d <= end && d >= began) checks[r.accountId + weekKey(d)] = 1; });
     var nChecks = Object.keys(checks).length;
-    add('Accounts checked against the bank (' + nChecks + ')', nChecks * 30, '🔎');
+    add('check', 'Accounts checked against the bank (' + nChecks + ')', nChecks * 30, '🔎');
     var reached = live('goals').filter(function(g){ return g.reachedOn && g.reachedOn >= start && g.reachedOn <= end; }).length;
-    add('Goals reached', reached * 100, '🏆');
+    add('goal', 'Goals reached', reached * 100, '🏆');
     return {total:total, items:items, tier:tierFor(total), next:nextTier(total)};
   });
+}
+
+/* ---------- rewards in rand (from household.rewardsFrom on) ---------- */
+// The owner asked for rewards people understand and want. Before, a habit earned points, points set a tier, and the tier set a % of
+// the month-end surplus: three steps before anyone saw money. Now every habit is worth rand straight away, towards a monthly reward
+// with a limit the household sets. On payday that goes into the Reward Pot, but never more than half of what the month left over, so
+// overspending costs the reward and the other half always stays for savings. Points still count the habits underneath: rand =
+// points × limit ÷ a full month's points. Months before rewardsFrom keep the old sums, because carry-over depends on them.
+function rewardNew(start){ var h = state.household; return !!(h && h.rewardsFrom && start >= h.rewardsFrom); }
+function rewardLimit(start){
+  var h = state.household || {}; if (h.rewardCap != null && h.rewardCap !== '') return Math.max(0, +h.rewardCap || 0);
+  return Math.max(100, Math.round(periodSummary(start || currentPeriod()).incomeBase * 0.05 / 50) * 50); // 5% of expected income
+}
+function rewardFull(){ return members().length > 1 ? 1500 : 1000; } // what a month of every habit adds up to
+function rewardRand(pts, start){ return pts * rewardLimit(start) / rewardFull(); }
+function randFor(pts, start){ return Math.max(1, Math.round(rewardRand(pts, start))); } // what one habit is shown as worth
+function rewardLevel(start){
+  var pts = pointsFor(start), limit = rewardLimit(start), share = Math.min(1, pts.total / rewardFull()), tier = TIERS[0];
+  TIERS.forEach(function(t){ if (share >= t.min / 1500) tier = t; });
+  var next = TIERS.filter(function(t){ return t.min / 1500 > share; })[0] || null;
+  return {pts:pts, limit:limit, share:share, tier:tier, next:next, nextAt:next ? Math.ceil(limit * next.min / 1500) : null, earned:Math.floor(Math.min(limit, rewardRand(pts.total, start)))};
+}
+// 7 days in a row: an envelope of 15–60 points. Worked out from who and when, so both phones always agree on what's inside.
+function envelopePts(memberId, date){ var h = 5381, s = memberId + '|' + date; for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0; return 15 + Math.abs(h) % 46; }
+function envelopesWaiting(){
+  var p = currentPeriod(), id = me().id, st = memberStreak(id), seen = device.envOpened || {};
+  if (!rewardNew(p)) return [];
+  return Object.keys(st.milestones).filter(function(d){ return d >= p && !seen[id + '|' + d]; }).sort().map(function(d){ return {key:id + '|' + d, date:d, days:st.milestones[d], rand:randFor(envelopePts(id, d), p)}; });
 }
 
 /* ---------- Reward Pot ---------- */
@@ -858,7 +895,9 @@ function startedPeriod(){ return periodStartFor(state.household && state.househo
 // A finished month's Reward Pot share. Only months from when you started using Nestegg count — imported history doesn't earn a pot.
 function rewardFor(start){
   if (start < startedPeriod() || start >= currentPeriod()) return 0;
-  var s = periodSummary(start), pct = rewardPct(pointsFor(start).tier.name);
+  var s = periodSummary(start);
+  if (rewardNew(start)) return s.income > 0 && s.surplus > 0 ? Math.min(rewardLevel(start).earned, Math.floor(s.surplus / 2)) : 0;
+  var pct = rewardPct(pointsFor(start).tier.name);
   return s.income > 0 && s.surplus > 0 ? Math.round(s.surplus * pct / 100) : 0;
 }
 function rewardHistory(){
@@ -870,7 +909,8 @@ function rewardHistory(){
     var out = [], p = periodStartFor(first), guard = 0;
     while (p < cur && guard < 240) {
       var s = periodSummary(p), pts = pointsFor(p);
-      out.push({start:p, income:s.income, spent:s.spent, saved:s.saved, surplus:s.surplus, points:pts.total, tier:pts.tier, pct:rewardPct(pts.tier.name), reward:rewardFor(p)});
+      var fresh = rewardNew(p), lv = fresh ? rewardLevel(p) : null;
+      out.push({start:p, income:s.income, spent:s.spent, saved:s.saved, surplus:s.surplus, points:pts.total, tier:fresh ? lv.tier : pts.tier, pct:rewardPct(pts.tier.name), reward:rewardFor(p), fresh:fresh, earned:fresh ? lv.earned : null});
       p = nextPeriodStart(p); guard++;
     }
     return out.reverse();
@@ -908,10 +948,10 @@ function potBalance(){
     return {earned:earned, used:used, balance:round2(earned - used)};
   });
 }
+// This month so far: what's earned, and how much of it the month's left-over can cover if spending goes to plan (or past it)
 function projectedReward(){
-  var s = periodSummary(currentPeriod()), pts = pointsFor(currentPeriod());
-  var surplus = s.incomeBase - Math.max(s.budgeted, s.spent);
-  return {amount: Math.max(0, Math.round(surplus * rewardPct(pts.tier.name) / 100)), pct: rewardPct(pts.tier.name), surplus: surplus};
+  var p = currentPeriod(), s = periodSummary(p), lv = rewardLevel(p), surplus = s.incomeBase - Math.max(s.budgeted, s.spent), cover = Math.max(0, Math.floor(surplus / 2));
+  return {earned:lv.earned, cover:cover, amount:Math.min(lv.earned, cover), surplus:surplus, payday:addDays(periodEndFor(p), 1)};
 }
 
 /* ---------- totals for wealth ---------- */
@@ -1063,14 +1103,14 @@ function shareOrDownload(filename, text, mime){
 /* Celebrate changes: compare snapshot before/after an action */
 function snapshot(){
   clearCache();
-  var p = currentPeriod(), pts = pointsFor(p);
-  return {pts:pts.total, tier:pts.tier.name, streak:memberStreak(me().id).streak, today:memberStreak(me().id).today, couple:coupleStreak().streak};
+  var p = currentPeriod(), lv = rewardLevel(p);
+  return {pts:lv.earned, tier:lv.tier.name, streak:memberStreak(me().id).streak, today:memberStreak(me().id).today, couple:coupleStreak().streak};
 }
 function celebrate(before){
   var a = snapshot(), gained = a.pts - before.pts;
-  if (!before.today && a.today) { toast('🔥 Checked in! Streak: ' + a.streak + ' day' + (a.streak===1?'':'s'), 'gold'); buzz(25); }
-  else if (gained > 0) toast('+' + gained + ' points', 'gold');
-  if (a.tier !== before.tier && a.pts > before.pts) { setTimeout(function(){ toast('🎉 You reached ' + a.tier + ' tier!', 'gold'); }, 600); confetti(); }
+  if (!before.today && a.today) { toast('🔥 Checked in!' + (gained > 0 ? ' +' + fmtR(gained) + ' towards your reward.' : '') + ' Streak: ' + a.streak + ' day' + (a.streak===1?'':'s'), 'gold'); buzz(25); }
+  else if (gained > 0) toast('+' + fmtR(gained) + ' towards your reward 🎁', 'gold');
+  if (a.tier !== before.tier && a.pts > before.pts) { setTimeout(function(){ toast('🎉 ' + a.tier + '! ' + fmtR(a.pts) + ' earned this month', 'gold'); }, 600); confetti(); }
   else if (a.streak !== before.streak && a.streak > 0 && a.streak % 7 === 0) { confetti(); toast('⭐ ' + a.streak + '-day streak! You earned a streak freeze', 'gold'); }
   else if (a.couple > before.couple && a.couple > 0 && a.couple % 7 === 0) { confetti(); toast('💞 ' + a.couple + ' days checking in together!', 'gold'); }
 }
@@ -1324,7 +1364,8 @@ function sortTx(a){ return a.slice().sort(function(x,y){ return x.date !== y.dat
 
 /* ---------- HOME ---------- */
 function nudges(){
-  var out = [], p = currentPeriod(), s = periodSummary(p), d = new Date();
+  var out = [], p = currentPeriod(), s = periodSummary(p), d = new Date(), st = memberStreak(me().id);
+  if (!st.today && st.streak >= 2 && d.getHours() >= 17) out.push({e:'🔥', t:'Your ' + st.streak + '-day streak ends at midnight', s:'Log today\'s spending, or tap No spend today. ' + (st.freezes ? 'A freeze would save it, but keep those for emergencies.' : 'You have no freezes left.'), act:'quickAdd', id:'', cls:'gold'});
   if (!live('tx').length) out.push({e:'📄', t:'Bring in your bank statements', s:'Import FNB or GoTyme statements to see where your money really goes.', act:'view', id:'import', cls:'blue'});
   if (s.income === 0) out.push({e:'💰', t:'Payday? Log your income', s:'Record what came in so every rand can get a job.', act:'addType', id:'income', cls:'green'});
   if (s.budgeted === 0) out.push({e:'📊', t:'Set up your budget', s:'Give each category a monthly amount.', act:'tab', id:'budget', cls:'gold'});
@@ -1352,14 +1393,14 @@ function newMonthCard(p){
 ACTIONS.seeMonth = function(el){ ui.tab = 'budget'; ui.view = null; ui.period = el.getAttribute('data-id'); render(); window.scrollTo(0, 0); };
 ACTIONS.newMonthOk = function(){ device.newMonthSeen = currentPeriod(); saveDevice(); render(true); };
 function viewHome(){
-  var p = currentPeriod(), s = periodSummary(p), pts = pointsFor(p);
+  var p = currentPeriod(), s = periodSummary(p), rw = rewardLevel(p), envs = envelopesWaiting();
   var mine = memberStreak(me().id), pr = partner(), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
   var h = new Date().getHours(), greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   var html = topbar(greet + ', ' + esc(me().name), esc(periodName(p)) + ' budget · ' + s.daysLeft + ' day' + (s.daysLeft===1?'':'s') + ' left');
-  html += '<div class="grid two">' + newMonthCard(p) + reconDueCard() + tripHomeCard();
+  html += '<div class="grid two">' + (envs.length ? envelopeCard(envs) : '') + newMonthCard(p) + reconDueCard() + tripHomeCard();
   // hero
   var perDay = s.daysLeft > 0 ? s.leftToSpend / s.daysLeft : 0;
-  html += '<div class="card hero span2"><div class="row between"><div class="muted small strong">Left to spend this month</div><span class="pill gold">' + pts.tier.emoji + ' ' + pts.tier.name + ' · ' + pts.total + ' pts</span></div>' +
+  html += '<div class="card hero span2"><div class="row between"><div class="muted small strong">Left to spend this month</div><span class="pill gold" data-act="tab" data-id="rewards" style="cursor:pointer">' + rw.tier.emoji + ' ' + fmtR(rw.earned) + ' earned</span></div>' +
     '<div class="big-num" style="margin:6px 0 10px">' + (s.budgeted > 0 ? fmtR(s.leftToSpend) : '—') + '</div>' +
     (s.budgeted > 0 ? bar(s.spent, s.budgeted, s.spent > s.budgeted ? 'over' : '') : '') +
     '<div class="muted small" style="margin-top:8px">' + (s.budgeted === 0 ? 'Set a budget to see what\'s left each day.' :
@@ -1374,7 +1415,8 @@ function viewHome(){
     '<div class="streak ' + (cs.today?'done':'') + '"><div class="n">💞 ' + cs.streak + '</div><div class="l">Together</div><div class="f">' + (cs.freezes ? '🧊×' + cs.freezes : '&nbsp;') + '</div></div></div>' +
     weekDots(me().id) +
     (mine.today ? '<p class="small muted" style="margin:12px 0 0">Nice. Log anything else you spend today — it takes 10 seconds.</p>'
-      : '<div class="btns mt"><button class="btn primary" data-act="quickAdd">＋ Log a spend</button><button class="btn" data-act="noSpend">✓ No spend today</button></div>') + '</div>';
+      : '<div class="btns mt"><button class="btn primary" data-act="quickAdd">＋ Log a spend</button><button class="btn" data-act="noSpend">✓ No spend today</button></div><p class="small muted" style="margin:8px 0 0" id="checkin-worth">Worth ' + fmtR(randFor(10, p)) + ' for your reward' + (mine.streak ? ', and keeps your ' + mine.streak + '-day streak' : '') + '.</p>') +
+    (partnerNudge() ? '<div class="mt">' + partnerNudge() + '</div>' : '') + '</div>';
   // nudges
   var ns = nudges();
   html += '<div class="card"><h2>Next best moves</h2>' + (ns.length ? ns.map(function(n){
@@ -1888,45 +1930,104 @@ ACTIONS.saveNW = function(){
 /* ---------- REWARDS ---------- */
 var MD_ITEMS = ['Look at this week\'s spending together — no blame, just curiosity','Celebrate one win (a skipped purchase, a week under budget)','Check the categories that are running hot','Agree on one thing to do differently next week','Check progress on your goals and Reward Pot','Check that your accounts match the bank (Wealth → Your accounts)'];
 function viewRewards(){
-  var p = currentPeriod(), pts = pointsFor(p), nxt = pts.next, pot = potBalance(), proj = projectedReward(), hist = rewardHistory();
-  var html = topbar('Rewards', 'Good decisions, rewarded');
+  var p = currentPeriod(), lv = rewardLevel(p), pot = potBalance(), proj = projectedReward(), hist = rewardHistory(), envs = envelopesWaiting(), old = !rewardNew(p);
+  var html = topbar('Rewards', 'Good money habits pay you');
   html += '<div class="grid two">';
-  html += '<div class="card span2"><div class="tier"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div style="flex:1"><div class="mid-num">' + pts.tier.name + ' tier</div>' +
-    '<div class="small muted">' + pts.total + ' points this month · tiers reset every payday (fresh start!)</div></div></div>' +
-    (nxt ? '<div class="mt">' + bar(pts.total - tierFor(pts.total).min, nxt.min - tierFor(pts.total).min, '') + '<div class="small muted" style="margin-top:6px">' + (nxt.min - pts.total) + ' points to ' + nxt.emoji + ' ' + nxt.name + ' — which raises your Reward Pot share to ' + rewardPct(nxt.name) + '%</div></div>'
-      : '<p class="small">💎 Top tier! You\'re keeping the maximum ' + rewardPct('Diamond') + '% of your surplus as a reward.</p>') + '</div>';
-  // pot
-  html += '<div class="card"><h2>🎉 Reward Pot</h2><div class="big-num">' + fmtR(pot.balance) + '</div><div class="small muted">Ready to spend, guilt-free</div>' +
-    '<div class="nudge gold" style="cursor:default"><div class="e">📈</div><div><div class="t">On track for ~' + fmtR(proj.amount) + ' this month</div><div class="small muted">At ' + pts.tier.name + ' you keep ' + proj.pct + '% of whatever is left after spending. The rest goes to savings.</div></div></div>' +
-    '<div class="btns mt"><button class="btn gold" data-act="spendPot"' + (pot.balance <= 0 ? ' disabled' : '') + '>Spend from the pot</button></div>' +
-    (hist.length ? '<div class="sep"></div><h3>History</h3><div class="list">' + hist.slice(0, 6).map(function(r){
-      return '<div class="li"><div class="ico">' + r.tier.emoji + '</div><div class="main"><div class="t">' + esc(periodName(r.start)) + '</div><div class="s">Surplus ' + fmtR(r.surplus) + ' · ' + r.points + ' pts · ' + r.pct + '%</div></div><span class="amt ' + (r.reward ? 'pos' : 'muted') + '">' + (r.reward ? '+' + fmtR(r.reward) : '—') + '</span></div>';
-    }).join('') + '</div>' : '') + '</div>';
-  // streaks
+  // the pot: real money, yours now
+  html += '<div class="card hero span2" id="rw-pot"><div class="muted small strong">🎉 Your Reward Pot</div><div class="big-num" style="margin:6px 0 4px">' + fmtR(pot.balance) + '</div>' +
+    '<div class="muted small">Yours to spend on anything, guilt-free. ' + (pot.earned > 0 ? fmtR(pot.earned) + ' earned since you started.' : 'It fills up on payday from what your habits earn.') + '</div>' +
+    '<div class="btns mt"><button class="btn gold" data-act="spendPot"' + (pot.balance <= 0 ? ' disabled' : '') + '>Spend from the pot</button></div></div>';
+  html += envs.length ? envelopeCard(envs) : '';
+  if (old) return html + oldRewardsHtml(p) + '</div>';
+  // this month: what's earned so far, and whether payday will cover it
+  var marks = TIERS.map(function(t){ return '<span>' + t.emoji + ' ' + fmtR(Math.ceil(lv.limit * t.min / 1500)) + '</span>'; }).join('');
+  var status = lv.earned === 0 ? '<b>Check in today</b> to start earning.'
+    : proj.cover >= lv.earned ? '✅ On ' + esc(fmtDate(proj.payday)) + ' this goes into your pot. You\'re on track.'
+    : proj.cover > 0 ? '⚠️ Right now only ' + fmtR(proj.cover) + ' of it is covered, because the pot takes at most half of what the month leaves over. Spend a little less to keep all ' + fmtR(lv.earned) + '.'
+    : '⚠️ Spending is ahead of your income, so none of it would reach the pot yet. Get back under budget to keep it.';
+  html += '<div class="card span2" id="rw-month"><div class="row between"><h2 style="margin:0">This month you\'ve earned</h2><span class="pill gold">' + lv.tier.emoji + ' ' + lv.tier.name + '</span></div>' +
+    '<div class="big-num" style="margin:6px 0">' + fmtR(lv.earned) + '<span class="small muted"> of ' + fmtR(lv.limit) + '</span></div>' + bar(lv.earned, lv.limit, '') +
+    '<div class="row between tiny muted" style="margin-top:6px">' + marks + '</div>' +
+    (lv.next ? '<p class="small" style="margin:10px 0 0">' + fmtR(Math.max(1, lv.nextAt - lv.earned)) + ' more to reach ' + lv.next.emoji + ' ' + lv.next.name + '.</p>' : '<p class="small" style="margin:10px 0 0">💎 You\'ve earned the full reward this month.</p>') +
+    '<p class="small muted" style="margin:6px 0 0">' + status + '</p></div>';
+  // how it works, in three lines
+  html += '<div class="card span2" id="rw-how"><h2>How it works</h2><div class="list small">' +
+    [['1', 'Do the good money habits below. Each one is worth real rand, shown next to it.'], ['2', 'What you earn adds up through the month, to at most ' + fmtR(lv.limit) + '.'], ['3', 'On payday it goes into your Reward Pot, as long as the month left money over. Overspend and you lose some of it.']]
+      .map(function(r){ return '<div class="li"><div class="ico" style="font-weight:800">' + r[0] + '</div><div class="main"><div class="t" style="white-space:normal;font-weight:500">' + r[1] + '</div></div></div>'; }).join('') + '</div></div>';
+  html += habitsCard(p, lv);
+  html += streakCard() + moneyDateCard();
+  if (hist.length) html += '<div class="card span2"><details><summary class="strong">Past months</summary><div class="list mt">' + hist.slice(0, 8).map(function(r){
+    return '<div class="li"><div class="ico">' + r.tier.emoji + '</div><div class="main"><div class="t">' + esc(periodName(r.start)) + '</div><div class="s">' + (r.fresh ? 'Earned ' + fmtR(r.earned) + ' · left over ' + fmtR(r.surplus) : 'Left over ' + fmtR(r.surplus) + ' · ' + r.pct + '%') + '</div></div><span class="amt ' + (r.reward ? 'pos' : 'muted') + '">' + (r.reward ? '+' + fmtR(r.reward) : '—') + '</span></div>';
+  }).join('') + '</div></details></div>';
+  return html + '</div>';
+}
+// Every habit, what it's worth in rand, and how you're doing on it right now
+function habitsCard(p, lv){
+  var s = periodSummary(p), t = todayStr(), pr = partner(), mine = memberStreak(me().id), cs = coupleStreak(), got = {}, solo = members().length < 2;
+  lv.pts.items.forEach(function(i){ got[i.key] = (got[i.key] || 0) + i.pts; });
+  function r(pts){ return fmtR(randFor(pts, p)); }
+  function earned(k){ return got[k] ? '<div class="tiny pos strong">+' + fmtR(Math.floor(rewardRand(got[k], p))) + ' so far</div>' : ''; }
+  var weekly = s.days ? s.budgeted * 7 / s.days : 0, wi = Math.floor(daysBetween(p, t) / 7), ws = addDays(p, wi * 7), spentW = sum(txBetween(ws, t).filter(isSpend), function(x){ return x.amount; });
+  var dateDone = live('moneyDates').some(function(x){ return x.id === 'md-' + weekKey(t); }), checked = live('recons').some(function(x){ return x.balanced !== false && weekKey(x.on || x.asOf || '') === weekKey(t); });
+  var savedM = sum(txBetween(p, periodEndFor(p)).filter(function(x){ return x.type === 'saving'; }), function(x){ return x.amount; }), early = daysBetween(t, addDays(p, 4));
+  var rows = [
+    {e:'🔥', t:'Check in every day', how:'Log what you spend, or tap No spend today', v:r(10) + ' a day' + (solo ? '' : ' each'), st:mine.today ? '✅ Done today' : 'Not yet today', k:'checkin', done:mine.today, act:mine.today ? '' : 'quickAdd'},
+    pr ? {e:'💞', t:'Both of you, the same day', how:'Every day you both check in', v:r(5) + ' a day', st:cs.today ? '✅ Both done today' : memberStreak(pr.id).today ? 'Waiting for you' : 'Waiting for ' + pr.name, k:'both', done:cs.today} : null,
+    {e:'🧧', t:'7 days in a row', how:'Opens a surprise envelope', v:r(15) + '–' + r(60), st:'Next envelope in ' + (7 - mine.streak % 7) + ' day' + (7 - mine.streak % 7 === 1 ? '' : 's'), k:'streak'},
+    {e:'🎯', t:'Stay under budget for the week', how:s.budgeted ? fmtR(spentW) + ' spent of ' + fmtR(weekly) + ' this week' : 'Set a budget first', v:r(40) + ' a week', st:!s.budgeted ? '' : spentW <= weekly ? 'On track' : 'Over this week. Next week is a fresh start', k:'week', done:s.budgeted && spentW <= weekly},
+    {e:'🏦', t:'Move money to savings', how:fmtR(savedM) + ' saved this month', v:r(5) + ' per R100', st:'Up to ' + r(100) + ' a month', k:'save', act:'addType', id:'saving'},
+    {e:'🚀', t:'Save within 5 days of payday', how:'Pay yourselves first', v:r(25) + ', twice', st:early >= 0 ? early + ' day' + (early === 1 ? '' : 's') + ' left this month' : 'Next chance after payday', k:'early', act:early >= 0 ? 'addType' : '', id:'saving'},
+    {e:'💪', t:'Skip something you wanted', how:'Log it as Skipped', v:r(10) + ' per R100', st:'Up to ' + r(50) + ' each time', k:'skip', act:'addType', id:'skip'},
+    {e:'☕', t:'A money date together', how:'15 minutes, once a week', v:r(50) + ' a week', st:dateDone ? '✅ Done this week' : 'Not yet this week', k:'date', done:dateDone},
+    {e:'🔎', t:'Check an account against the bank', how:'Wealth → Your accounts', v:r(30) + ' a week each', st:checked ? '✅ Done this week' : 'Not yet this week', k:'check', done:checked, act:checked ? '' : 'compareBank'},
+    {e:'📄', t:'Import a bank statement', how:'Budget → Import', v:r(20) + ' a month', st:got['import'] ? '✅ Done this month' : 'Not yet this month', k:'import', done:!!got['import'], act:got['import'] ? '' : 'view', id:'import'},
+    {e:'🏆', t:'Reach a goal', how:goalsOpen().length + ' goal' + (goalsOpen().length === 1 ? '' : 's') + ' on the go', v:r(100) + ' each', st:'', k:'goal', act:'tab', id:'wealth'}
+  ].filter(Boolean);
+  return '<div class="card span2" id="rw-habits"><h2>Good habits, and what each is worth</h2><div class="list">' + rows.map(function(x){
+    return '<div class="li' + (x.act ? ' tap' : '') + '" id="habit-' + x.k + '"' + (x.act ? ' data-act="' + x.act + '"' + (x.id ? ' data-id="' + x.id + '"' : '') : '') + '><div class="ico">' + x.e + '</div><div class="main"><div class="t" style="white-space:normal">' + x.t + '</div>' +
+      '<div class="s" style="white-space:normal">' + esc(x.how) + (x.st ? ' · ' + esc(x.st) : '') + '</div>' + earned(x.k) + '</div><span class="amt ' + (x.done ? 'pos' : '') + '" style="flex:none;text-align:right">' + x.v + '</span></div>';
+  }).join('') + '</div></div>';
+}
+function partnerNudge(){
+  var pr = partner(); if (!pr || memberStreak(pr.id).today) return '';
+  var cs = coupleStreak(), msg = 'Hey ' + pr.name + '! Have you checked in on Nestegg today? ' + (cs.streak ? 'Our streak together is ' + cs.streak + ' day' + (cs.streak === 1 ? '' : 's') + ' 🔥' : 'Let\'s start a streak together 🔥');
+  return '<a class="btn sm" id="nudge-partner" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">👋 Nudge ' + esc(pr.name) + ' on WhatsApp</a>';
+}
+function streakCard(){
   var pr = partner(), ms = memberStreak(me().id), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
-  html += '<div class="card"><h2>🔥 Streaks</h2><div class="streaks"><div class="streak"><div class="n">' + ms.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">best ' + ms.best + '</div></div>' +
-    (ps ? '<div class="streak"><div class="n">' + ps.streak + '</div><div class="l">' + esc(pr.name) + '</div><div class="f">best ' + ps.best + '</div></div>' : '') +
-    '<div class="streak"><div class="n">' + cs.streak + '</div><div class="l">Together</div><div class="f">best ' + cs.best + '</div></div></div>' +
-    '<p class="small muted mt">🧊 Every 7-day streak earns a <b>streak freeze</b> (hold up to 2). If you miss a day, a freeze saves your streak automatically. You have ' + ms.freezes + '.</p>' +
-    weekDots(me().id) + (pr ? '<div class="tiny muted mt">' + esc(pr.name) + '</div>' + weekDots(pr.id) : '') + '</div>';
-  // money date
+  return '<div class="card" id="rw-streaks"><h2>🔥 Streaks</h2><div class="streaks"><div class="streak ' + (ms.today ? 'done' : '') + '"><div class="n">' + ms.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">best ' + ms.best + '</div></div>' +
+    (ps ? '<div class="streak ' + (ps.today ? 'done' : '') + '"><div class="n">' + ps.streak + '</div><div class="l">' + esc(pr.name) + '</div><div class="f">best ' + ps.best + '</div></div>' : '') +
+    '<div class="streak ' + (cs.today ? 'done' : '') + '"><div class="n">' + cs.streak + '</div><div class="l">Together</div><div class="f">best ' + cs.best + '</div></div></div>' +
+    '<p class="small muted mt">🧊 Every 7 days in a row also gives a <b>streak freeze</b> (hold up to 2): miss a day and one saves your streak by itself. You have ' + ms.freezes + '.</p>' +
+    weekDots(me().id) + (pr ? '<div class="tiny muted mt">' + esc(pr.name) + '</div>' + weekDots(pr.id) : '') + (partnerNudge() ? '<div class="mt">' + partnerNudge() + '</div>' : '') + '</div>';
+}
+function moneyDateCard(){
   var wk = weekKey(todayStr()), md = byId('moneyDates', 'md-' + wk), mdLive = md && !md.deleted;
-  html += '<div class="card"><h2>☕ Weekly money date</h2><p class="small muted" style="margin-top:-4px">15 minutes, once a week, together. +50 points.</p><div class="checklist">' +
+  return '<div class="card" id="rw-date"><h2>☕ Weekly money date</h2><p class="small muted" style="margin-top:-4px">15 minutes, once a week, together. Worth ' + fmtR(randFor(50, currentPeriod())) + '.</p><div class="checklist">' +
     MD_ITEMS.map(function(t, i){ return '<label class="ci"><input type="checkbox" data-change="mdTick" data-i="' + i + '"' + ((mdLive || (ui.mdTicks && ui.mdTicks[i])) ? ' checked' : '') + (mdLive ? ' disabled' : '') + '><span>' + esc(t) + '</span></label>'; }).join('') +
     '</div>' + (mdLive ? '<div class="nudge green" style="cursor:default"><div class="e">✅</div><div><div class="t">Done this week</div><div class="small muted">' + esc(md.note || 'See you next week.') + '</div></div></div>'
       : '<label class="field"><span>One thing we\'ll do differently (optional)</span><input class="input" id="f-mdn" placeholder="e.g. Pack lunch Mon–Wed"></label><button class="btn primary block" data-act="doneMoneyDate">We did our money date</button>') + '</div>';
-  // breakdown
-  html += '<div class="card"><h2>Points this month</h2>' + (pts.items.length ? '<div class="list">' + pts.items.map(function(i){ return '<div class="li"><div class="ico">' + i.e + '</div><div class="main"><div class="t" style="white-space:normal">' + esc(i.label) + '</div></div><span class="amt">+' + i.pts + '</span></div>'; }).join('') + '</div>'
-    : '<div class="empty"><span class="e">✨</span>Check in today to earn your first points.</div>') + '</div>';
-  html += '<div class="card"><h2>How to earn</h2><div class="list small">' +
-    [['🔥','Daily check-in (log a spend or "no spend")','10 / day each'],['💞','Both of you check in the same day','+5'],['⭐','Every 7-day streak','+30'],['💪','Skip a purchase you wanted','1 per R10 (max 50)'],
-     ['🏦','Move money to savings','1 per R20 (max 100)'],['🚀','Save within 5 days of payday','+25'],['☕','Weekly money date','+50'],['🎯','A week under budget','+40'],['🏆','Reach a goal','+100'],['📄','Import a statement','+20 / month'],['🔎','Check an account matches the bank','+30 / week each']]
-    .map(function(r){ return '<div class="li"><div class="ico">' + r[0] + '</div><div class="main"><div class="t" style="white-space:normal;font-weight:500">' + r[1] + '</div></div><span class="amt muted">' + r[2] + '</span></div>'; }).join('') +
-    '</div><p class="small muted mt">Tiers: 🥉 Bronze 0 · 🥈 Silver 400 · 🥇 Gold 900 · 💎 Diamond 1500. At month end, your tier decides how much of your surplus goes into the Reward Pot (' +
-    TIERS.map(function(t){ return t.name + ' ' + rewardPct(t.name) + '%'; }).join(', ') + '). Change the percentages in Settings.</p></div>';
-  html += '</div>';
-  return html;
 }
+// A month from before the rewards in rand: shown the way it worked then
+function oldRewardsHtml(p){
+  var pts = pointsFor(p);
+  return '<div class="card span2"><div class="tier"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div><div class="mid-num">' + pts.tier.name + '</div><div class="small muted">' + pts.total + ' points this month</div></div></div></div>' + streakCard() + moneyDateCard();
+}
+// 7 days in a row: an envelope to open. What's inside was decided when it was earned; opening it is the fun part.
+function envelopeCard(envs){
+  return '<div class="card span2" id="envelope" data-act="openEnvelope" style="cursor:pointer;border:1.5px solid var(--gold)"><div class="row" style="gap:12px"><span style="font-size:34px">🧧</span><div style="flex:1;min-width:0"><div class="strong">' +
+    (envs.length > 1 ? envs.length + ' surprise envelopes to open!' : 'You\'ve earned a surprise envelope!') + '</div><div class="small muted">For ' + envs[0].days + ' days in a row. Tap to open it.</div></div></div></div>';
+}
+ACTIONS.openEnvelope = function(){
+  var e = envelopesWaiting()[0]; if (!e) return;
+  device.envOpened = device.envOpened || {}; device.envOpened[e.key] = true; saveDevice();
+  openSheet('envelope', {rand:e.rand, days:e.days}); buzz(30); setTimeout(confetti, 450);
+};
+SHEETS.envelope = function(sh){
+  return '<div class="center" style="padding:10px 0 4px"><div class="env-pop" style="font-size:72px">🧧</div><div class="env-in"><div class="small muted strong" style="margin-top:6px">' + sh.days + ' DAYS IN A ROW</div><div class="big-num">+' + fmtR(sh.rand) + '</div>' +
+    '<p class="small muted">Added to what you\'ve earned this month. Keep the streak going for the next one.</p></div></div><button class="btn primary block" data-act="closeEnvelope">Nice!</button>';
+};
+ACTIONS.closeEnvelope = function(){ closeSheet(); render(true); };
 CHANGES.mdTick = function(el){ ui.mdTicks = ui.mdTicks || {}; ui.mdTicks[el.getAttribute('data-i')] = el.checked; };
 ACTIONS.doneMoneyDate = function(){
   var before = snapshot(), wk = weekKey(todayStr());
@@ -2275,8 +2376,8 @@ VIEWS.household = function(){
     '<p class="small muted">Current month: ' + esc(periodRange(currentPeriod())) + '. To move a single month (say payday comes early), tap its dates on the 📊 Budget tab.</p>' +
     '<div class="sep"></div><label class="row" style="gap:12px"><span class="toggle"><input type="checkbox" id="h-carry"' + (h.carryOver !== false ? ' checked' : '') + '><span></span></span>' +
     '<span class="small"><b>Bring each month\'s leftover forward</b><br><span class="muted">What\'s left at month end shows up in next month\'s plan, like Balance B/D.</span></span></label></div>' +
-    '<div class="card mt"><h2>Reward Pot share by tier</h2><p class="small muted">The % of your month-end surplus you get to spend guilt-free. The rest is for savings.</p>' +
-    TIERS.map(function(t){ return '<label class="field"><span>' + t.emoji + ' ' + t.name + ' (%)</span><input class="input" type="number" min="0" max="100" id="h-rp-' + t.name + '" value="' + rewardPct(t.name) + '"></label>'; }).join('') + '</div>' +
+    '<div class="card mt"><h2>🎁 Rewards</h2><label class="field"><span>The most your habits can earn in a month</span><input class="input" inputmode="decimal" id="h-rcap" value="' + (h.rewardCap != null && h.rewardCap !== '' ? esc(String(h.rewardCap)) : '') + '" placeholder="' + fmtR(rewardLimit(currentPeriod())) + ' (5% of expected income)"></label>' +
+    '<p class="small muted" style="margin-bottom:0">Every good habit earns part of this. On payday it goes into your Reward Pot to spend guilt-free, but never more than half of what the month left over. Leave it empty for 5% of your expected income.</p></div>' +
     '<button class="btn primary block mt" data-act="saveHousehold">Save</button>';
   return html;
 };
@@ -2286,7 +2387,8 @@ ACTIONS.saveHousehold = function(){
   h.members.forEach(function(m){ m.name = $('#h-n-' + m.id).value.trim() || m.name; });
   h.periodStartDay = clamp(parseInt($('#h-pd').value, 10) || 1, 1, 31);
   h.carryOver = $('#h-carry').checked;
-  TIERS.forEach(function(t){ h.rewardPct[t.name] = clamp(parseInt($('#h-rp-' + t.name).value, 10) || 0, 0, 100); });
+  var cap = parseAmount($('#h-rcap').value);
+  if (cap >= 0) h.rewardCap = cap; else delete h.rewardCap;
   setHousehold(h);
   // months whose dates you moved by hand keep them; anything that no longer follows on is tidied up
   var hs = JSON.parse(JSON.stringify(state.household)), ks = Object.keys(hs.periodStarts || {}).sort();
@@ -5938,13 +6040,14 @@ SHEETS.recap = function(sh){
   var s = periodSummary(sh.p), pts = pointsFor(sh.p);
   return '<h2>🌅 ' + esc(periodName(sh.p)) + ' wrapped</h2><p class="muted">New month, fresh start. Here\'s how last month went:</p>' +
     '<div class="kpis"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Spent</div><div class="v">' + fmtR(s.spent) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) + '</div></div></div>' +
-    '<div class="tier mt"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div><div class="strong">' + pts.tier.name + ' · ' + pts.total + ' points</div><div class="small muted">' +
+    (r && r.fresh ? '<div class="tier mt"><div class="badge ' + r.tier.name + '">' + r.tier.emoji + '</div><div><div class="strong">You earned ' + fmtR(r.earned) + ' with good habits</div><div class="small muted">' :
+    '<div class="tier mt"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div><div class="strong">' + pts.tier.name + ' · ' + pts.total + ' points</div><div class="small muted">') +
     (s.budgeted ? (s.spent <= s.budgeted ? '🎯 You stayed within budget!' : 'Over budget by ' + fmtR(s.spent - s.budgeted) + ' — this month is a clean slate.') : '') + '</div></div></div>' +
-    (r && r.reward > 0 ? '<div class="nudge gold" style="cursor:default"><div class="e">🎉</div><div><div class="t">' + fmtR(r.reward) + ' added to your Reward Pot</div><div class="small muted">' + r.pct + '% of your ' + fmtR(r.surplus) + ' surplus. Move the other ' + fmtR(r.surplus - r.reward) + ' to savings if you haven\'t yet.</div></div></div>'
+    (r && r.reward > 0 ? '<div class="nudge gold" style="cursor:default"><div class="e">🎉</div><div><div class="t">' + fmtR(r.reward) + ' added to your Reward Pot</div><div class="small muted">' + (r.fresh ? (r.reward < r.earned ? 'The pot takes at most half of what\'s left over, and you had ' + fmtR(r.surplus) + ' left. ' : 'All of it, because the month had enough left over. ') : r.pct + '% of your ' + fmtR(r.surplus) + ' surplus. ') + 'Move the other ' + fmtR(r.surplus - r.reward) + ' to savings if you haven\'t yet.</div></div></div>'
       : s.income > 0 ? '<div class="nudge" style="cursor:default"><div class="e">🌱</div><div><div class="t">No surplus this time</div><div class="small muted">Spending matched or passed income. One small change this month makes a difference.</div></div></div>'
       : '<div class="nudge" style="cursor:default"><div class="e">💡</div><div><div class="t">Log your income this month</div><div class="small muted">The Reward Pot fills from income minus spending, so record payday.</div></div></div>') +
     (state.household.carryOver !== false ? '<p class="small mt">↪️ <b>' + fmtR(carryIn(nextPeriodStart(sh.p))) + '</b> brought forward into ' + esc(periodName(nextPeriodStart(sh.p))) + ' — give it a job on the Budget tab.</p>' : '') +
-    '<p class="small mt">Tiers reset today. Everyone starts at Bronze — first check-in earns points.</p><button class="btn primary block" data-act="closeSheet">Let\'s go 🚀</button>';
+    '<p class="small mt">A fresh month: what you earn starts again from R0. Check in today to start earning.</p><button class="btn primary block" data-act="closeSheet">Let\'s go 🚀</button>';
 };
 
 function checkRecap(){
@@ -5959,6 +6062,8 @@ function checkRecap(){
 function init(){
   loadAll();
   if (migrateCategories()) saveState(); // one-off move to groups with categories inside; syncs to the other devices
+  // rewards in rand start with the month this version first opens in; earlier months keep their old sums
+  if (state.household && !state.household.rewardsFrom) { var rh = Object.assign({}, state.household); rh.rewardsFrom = currentPeriod(); setHousehold(rh); saveState(); }
   if (device.autoSync == null) device.autoSync = !IS_IOS;
   var r = Drive.handleRedirect();
   rcResume();
