@@ -298,6 +298,16 @@ table.tbl{border-collapse:collapse;width:100%;font-size:13.5px}
 @keyframes envin{0%{transform:translateY(10px);opacity:0}100%{transform:none;opacity:1}}
 @media (prefers-reduced-motion:reduce){.env-pop,.env-in{animation:none}}
 
+/* promises: the prize floats while you work towards it, and jumps when it's won */
+.promise{padding:14px 0;border-bottom:1px solid var(--line)}
+.promise:last-child{border-bottom:0}
+.prize{display:inline-block;flex:none;animation:pfloat 3.2s ease-in-out infinite;transition:filter .6s ease,opacity .6s ease}
+.prize.won{animation:pwin 1.1s cubic-bezier(.2,1.5,.4,1) both,pglow 2.4s ease-in-out 1.1s infinite}
+@keyframes pfloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-5px)}}
+@keyframes pwin{0%{transform:scale(.4) rotate(-10deg)}70%{transform:scale(1.12) rotate(4deg)}100%{transform:none}}
+@keyframes pglow{0%,100%{filter:drop-shadow(0 0 0 rgba(217,154,30,0))}50%{filter:drop-shadow(0 0 12px rgba(217,154,30,.75))}}
+@media (prefers-reduced-motion:reduce){.prize,.prize.won{animation:none}}
+
 </style>
 </head>
 <body>
@@ -317,10 +327,10 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261103151538' // set by tools/build.py
+  BUILD: '20261103154950' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
-var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips'];
+var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises'];
 var TIERS = [
   {name:'Bronze', min:0, emoji:'🥉'},
   {name:'Silver', min:400, emoji:'🥈'},
@@ -415,7 +425,7 @@ function defaultCatName(name){ return name.replace('%m1%', (member('m1') || {nam
 function baseGroups(h){ return (h && h.groups) || LEGACY_GROUPS; }
 
 function blankState(){
-  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[]};
+  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[]};
 }
 function defaultDevice(){
   return {memberId:null, clientId:'', autoSync:null, driveFileId:null, token:null, tokenExp:0, lastSync:0, syncError:'',
@@ -1050,7 +1060,7 @@ function toast(msg, kind){
   setTimeout(function(){ t.style.transition = 'opacity .3s'; t.style.opacity = '0'; }, 2600);
   setTimeout(function(){ if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
 }
-function buzz(ms){ try { if (navigator.vibrate) navigator.vibrate(ms || 12); } catch(e){} }
+function buzz(ms){ try { if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return; if (navigator.vibrate) navigator.vibrate(ms || 12); } catch(e){} } // phones refuse before the first tap
 
 function confetti(){
   var c = $('#confetti'); if (!c || !c.getContext) return;
@@ -1108,6 +1118,7 @@ function snapshot(){
 }
 function celebrate(before){
   var a = snapshot(), gained = a.pts - before.pts;
+  setTimeout(checkPromises, 900);
   if (!before.today && a.today) { toast('🔥 Checked in!' + (gained > 0 ? ' +' + fmtR(gained) + ' towards your reward.' : '') + ' Streak: ' + a.streak + ' day' + (a.streak===1?'':'s'), 'gold'); buzz(25); }
   else if (gained > 0) toast('+' + fmtR(gained) + ' towards your reward 🎁', 'gold');
   if (a.tier !== before.tier && a.pts > before.pts) { setTimeout(function(){ toast('🎉 ' + a.tier + '! ' + fmtR(a.pts) + ' earned this month', 'gold'); }, 600); confetti(); }
@@ -1397,7 +1408,7 @@ function viewHome(){
   var mine = memberStreak(me().id), pr = partner(), ps = pr ? memberStreak(pr.id) : null, cs = coupleStreak();
   var h = new Date().getHours(), greet = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   var html = topbar(greet + ', ' + esc(me().name), esc(periodName(p)) + ' budget · ' + s.daysLeft + ' day' + (s.daysLeft===1?'':'s') + ' left');
-  html += '<div class="grid two">' + (envs.length ? envelopeCard(envs) : '') + newMonthCard(p) + reconDueCard() + tripHomeCard();
+  html += '<div class="grid two">' + (envs.length ? envelopeCard(envs) : '') + promiseHomeCard() + newMonthCard(p) + reconDueCard() + tripHomeCard();
   // hero
   var perDay = s.daysLeft > 0 ? s.leftToSpend / s.daysLeft : 0;
   html += '<div class="card hero span2"><div class="row between"><div class="muted small strong">Left to spend this month</div><span class="pill gold" data-act="tab" data-id="rewards" style="cursor:pointer">' + rw.tier.emoji + ' ' + fmtR(rw.earned) + ' earned</span></div>' +
@@ -1954,7 +1965,7 @@ function viewRewards(){
   html += '<div class="card span2" id="rw-how"><h2>How it works</h2><div class="list small">' +
     [['1', 'Do the good money habits below. Each one is worth real rand, shown next to it.'], ['2', 'What you earn adds up through the month, to at most ' + fmtR(lv.limit) + '.'], ['3', 'On payday it goes into your Reward Pot, as long as the month left money over. Overspend and you lose some of it.']]
       .map(function(r){ return '<div class="li"><div class="ico" style="font-weight:800">' + r[0] + '</div><div class="main"><div class="t" style="white-space:normal;font-weight:500">' + r[1] + '</div></div></div>'; }).join('') + '</div></div>';
-  html += habitsCard(p, lv);
+  html += promisesCard() + habitsCard(p, lv);
   html += streakCard() + moneyDateCard();
   if (hist.length) html += '<div class="card span2"><details><summary class="strong">Past months</summary><div class="list mt">' + hist.slice(0, 8).map(function(r){
     return '<div class="li"><div class="ico">' + r.tier.emoji + '</div><div class="main"><div class="t">' + esc(periodName(r.start)) + '</div><div class="s">' + (r.fresh ? 'Earned ' + fmtR(r.earned) + ' · left over ' + fmtR(r.surplus) : 'Left over ' + fmtR(r.surplus) + ' · ' + r.pct + '%') + '</div></div><span class="amt ' + (r.reward ? 'pos' : 'muted') + '">' + (r.reward ? '+' + fmtR(r.reward) : '—') + '</span></div>';
@@ -2011,7 +2022,7 @@ function moneyDateCard(){
 // A month from before the rewards in rand: shown the way it worked then
 function oldRewardsHtml(p){
   var pts = pointsFor(p);
-  return '<div class="card span2"><div class="tier"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div><div class="mid-num">' + pts.tier.name + '</div><div class="small muted">' + pts.total + ' points this month</div></div></div></div>' + streakCard() + moneyDateCard();
+  return '<div class="card span2"><div class="tier"><div class="badge ' + pts.tier.name + '">' + pts.tier.emoji + '</div><div><div class="mid-num">' + pts.tier.name + '</div><div class="small muted">' + pts.total + ' points this month</div></div></div></div>' + promisesCard() + streakCard() + moneyDateCard();
 }
 // 7 days in a row: an envelope to open. What's inside was decided when it was earned; opening it is the fun part.
 function envelopeCard(envs){
@@ -5486,6 +5497,182 @@ VIEWS.voice = function(){
     (ears === 'none' ? '<p class="small muted mt" style="margin-bottom:0">Turn on Google\'s AI to talk to Nestegg on this phone. For now, your keyboard\'s own mic works here.</p>' : ears === 'tape' ? '<p class="tiny muted mt" style="margin-bottom:0">On this phone Google\'s AI writes out what you say, through your own sync script.</p>' : '') + '</div>';
 };
 
+/* ===== Nestegg — promises: "if we save R6 000 by January, Eli buys Lindy a ring" ===== */
+// The owner asked for rewards you can hold: a ring, a book. A promise ('promises', synced) is a deal Nestegg can check by itself, so
+// nobody has to argue about whether it was met: {id, by, to (a member id or 'us'), prize, emoji, photo, kind, amount, goalId, n, from,
+// until, made, status:'open'|'won'|'kept', wonOn, keptOn}. Kinds: save (a total saved since it was made), goal (a goal reached), budget
+// (n budget months in a row within budget), streak (n days in a row, together), full (the whole monthly reward earned in one month).
+// The prize starts grey and blurred and comes into focus as you get closer. Winning is written once, from whichever phone sees it first.
+var PROMISE_KINDS = [['save', '🏦 Save a total of…'], ['goal', '🎯 Reach a goal'], ['budget', '📊 Stay within budget, months in a row'], ['streak', '🔥 Check in together, days in a row'], ['full', '💎 Earn the full monthly reward']];
+var PRIZE_EMOJI = [[/ring|jewel|necklace|earring|bracelet/i, '💍'], [/book|novel|bible|kindle/i, '📚'], [/dinner|restaurant|lunch|breakfast|braai|meal/i, '🍽️'], [/trip|holiday|weekend|getaway|flight|travel/i, '✈️'], [/phone|iphone|samsung/i, '📱'],
+  [/shoe|sneaker|takkie/i, '👟'], [/dress|outfit|clothes|shirt|bag|handbag/i, '👗'], [/watch/i, '⌚'], [/spa|massage|nails|hair/i, '💆'], [/flower|roses/i, '💐'], [/game|console|playstation|xbox/i, '🎮'], [/movie|cinema|show|concert/i, '🎬'], [/perfume|cologne/i, '🧴'], [/car/i, '🚗']];
+function prizeEmoji(text){ var m = PRIZE_EMOJI.filter(function(x){ return x[0].test(text || ''); })[0]; return m ? m[1] : '🎁'; }
+function whoName(id){ return id === 'us' ? 'us' : (member(id) || {name:'?'}).name; }
+// "Eli buys Lindy a ring", "Eli gets a book", "we treat ourselves to a weekend away"
+function promiseOutcome(pr){
+  var prize = pr.prize;
+  if (pr.to === pr.by) return pr.by === 'us' ? 'we treat ourselves to ' + prize : whoName(pr.by) + ' gets ' + prize;
+  if (pr.by === 'us') return 'we buy ' + whoName(pr.to) + ' ' + prize;
+  return pr.to === 'us' ? whoName(pr.by) + ' treats us to ' + prize : whoName(pr.by) + ' buys ' + whoName(pr.to) + ' ' + prize;
+}
+function promiseDeal(pr){
+  var g = pr.goalId && byId('goals', pr.goalId);
+  return pr.kind === 'save' ? 'we save ' + fmtR(pr.amount) : pr.kind === 'goal' ? 'we reach ' + (g ? g.name : 'our goal') : pr.kind === 'budget' ? 'we stay within budget for ' + pr.n + ' month' + (pr.n === 1 ? '' : 's') + ' in a row'
+    : pr.kind === 'streak' ? 'we check in ' + pr.n + ' days in a row' + (members().length > 1 ? ' together' : '') : 'we earn the full reward in a month';
+}
+function promiseSentence(pr){ var s = 'If ' + promiseDeal(pr) + (pr.until ? ' by ' + fmtDate(pr.until, true) : '') + ', ' + promiseOutcome(pr) + '.'; return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// Where it stands: {have, need, text, won}
+function promiseProgress(pr){
+  var t = todayStr(), end = pr.until && pr.until < t ? pr.until : t, have = 0, need = 1, text = '';
+  if (pr.kind === 'save') {
+    have = sum(live('tx').filter(function(x){ return x.type === 'saving' && x.date >= pr.from && x.date <= end; }), function(x){ return x.amount; }); need = pr.amount;
+    text = fmtR(have) + ' of ' + fmtR(need) + ' saved since ' + fmtDate(pr.from);
+  } else if (pr.kind === 'goal') {
+    var g = byId('goals', pr.goalId);
+    if (g) { have = goalSaved(g.id); need = g.target; text = fmtR(have) + ' of ' + fmtR(need) + ' in ' + g.name; if (g.reachedOn) have = need; } else text = 'That goal was deleted';
+  } else if (pr.kind === 'budget') {
+    // finished budget months from the one it was made in; a month over budget starts the count again
+    var p = periodStartFor(pr.from), run = 0, cur = currentPeriod();
+    for (var i = 0; p < cur && i < 36; i++, p = nextPeriodStart(p)) { var s = periodSummary(p); run = s.budgeted > 0 && s.spent <= s.budgeted ? run + 1 : 0; }
+    have = run; need = pr.n; var now = periodSummary(cur);
+    text = run + ' of ' + need + ' month' + (need === 1 ? '' : 's') + ' within budget' + (now.budgeted ? '. This month: ' + (now.spent <= now.budgeted ? 'on track' : 'over, so the count would start again') : '');
+  } else if (pr.kind === 'streak') {
+    var st = members().length > 1 ? coupleStreak() : memberStreak(me().id); have = st.streak; need = pr.n;
+    text = have + ' of ' + need + ' days in a row';
+  } else {
+    var best = 0, q = periodStartFor(pr.from);
+    for (var j = 0; q <= currentPeriod() && j < 36; j++, q = nextPeriodStart(q)) if (rewardNew(q)) best = Math.max(best, rewardLevel(q).share);
+    have = Math.round(best * 100); need = 100; var lv = rewardLevel(currentPeriod());
+    text = fmtR(lv.earned) + ' of ' + fmtR(lv.limit) + ' earned this month';
+  }
+  return {have:have, need:need, pct:need > 0 ? Math.min(1, have / need) : 0, text:text, won:need > 0 && have >= need};
+}
+function promisesLive(){ return live('promises').sort(function(a, b){ return (a.status === 'kept' ? 1 : 0) - (b.status === 'kept' ? 1 : 0) || (b.made < a.made ? -1 : 1); }); }
+function promiseLapsed(pr){ return pr.status === 'open' && pr.until && pr.until < todayStr() && !promiseProgress(pr).won; }
+// A promise met is written down once, and celebrated once on each phone
+function checkPromises(){
+  if (!state.household) return;
+  var hit = null;
+  live('promises').forEach(function(pr){
+    if (pr.status !== 'open' || (pr.until && pr.until < addDays(todayStr(), -1) && !promiseProgress(pr).won)) return;
+    if (promiseProgress(pr).won) { var x = Object.assign({}, pr); x.status = 'won'; x.wonOn = todayStr(); upsert('promises', x); hit = hit || x; }
+  });
+  if (hit) { saveState(); render(true); } // Home was drawn before the win was written
+  var seen = device.promiseSeen || {}, show = live('promises').filter(function(pr){ return pr.status === 'won' && !seen[pr.id]; })[0];
+  if (show && !ui.sheet) { device.promiseSeen = Object.assign({}, seen); device.promiseSeen[show.id] = true; saveDevice(); openSheet('promiseWon', {id:show.id}); setTimeout(confetti, 300); buzz(40); }
+}
+
+/* ---------- the prize: a photo of the real thing, or a big picture of it, coming into focus ---------- */
+function prizeArt(pr, size, pct){
+  var fog = pct >= 1 || pr.status !== 'open' ? '' : 'filter:grayscale(' + Math.round((1 - pct) * 100) + '%) blur(' + ((1 - pct) * 4).toFixed(1) + 'px);opacity:' + (0.45 + pct * 0.55).toFixed(2) + ';';
+  var cls = 'prize' + (pct >= 1 || pr.status !== 'open' ? ' won' : '');
+  // the photo travels through sync, so only a real picture is ever put on the page
+  var photo = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+\/=]+$/.test(pr.photo || '') ? pr.photo : null;
+  return photo ? '<img class="' + cls + '" alt="' + esc(pr.prize) + '" src="' + photo + '" style="width:' + size + 'px;height:' + size + 'px;object-fit:cover;border-radius:' + Math.round(size / 5) + 'px;' + fog + '">'
+    : '<div class="' + cls + '" aria-hidden="true" style="font-size:' + Math.round(size * 0.78) + 'px;line-height:' + size + 'px;width:' + size + 'px;text-align:center;' + fog + '">' + pr.emoji + '</div>';
+}
+// Small enough to sync: about 20 KB, square, from a phone photo or a picture from the internet
+function prizePhoto(file){
+  return new Promise(function(ok, fail){
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function(){
+      var side = Math.min(img.width, img.height), c = document.createElement('canvas'); c.width = c.height = 320;
+      c.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 320, 320);
+      URL.revokeObjectURL(url); ok(c.toDataURL('image/jpeg', 0.72));
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); fail(new Error('That picture couldn\'t be opened')); };
+    img.src = url;
+  });
+}
+
+/* ---------- making one ---------- */
+ACTIONS.promiseNew = function(){
+  var pr = partner(), g = goalsOpen()[0];
+  openSheet('promise', {by:me().id, to:pr ? pr.id : me().id, prize:'', kind:'save', amount:'', goalId:g ? g.id : '', n:'3', until:addDays(todayStr(), 90), photo:null});
+};
+SHEETS.promise = function(sh){
+  var ms = members(), who = ms.map(function(m){ return [m.id, m.name]; }).concat(ms.length > 1 ? [['us', 'Both of us']] : []), goals = goalsOpen();
+  function seg(field, list){ return '<div class="seg">' + list.map(function(x){ return '<button class="' + (sh[field] === x[0] ? 'on' : '') + '" data-act="promiseSet" data-k="' + field + '" data-id="' + x[0] + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>'; }
+  var draft = {by:sh.by, to:sh.to, prize:sh.prize || 'the prize', kind:sh.kind, amount:parseAmount(sh.amount) || 0, goalId:sh.goalId, n:parseInt(sh.n, 10) || 0, until:sh.kind === 'save' ? sh.until : null, emoji:prizeEmoji(sh.prize), photo:sh.photo, status:'open'};
+  var html = '<h2>🤝 Make a promise</h2><div class="center" id="promise-art">' + prizeArt(draft, 96, 0.35) + '</div>' +
+    '<label class="field"><span>The prize</span><input class="input" id="f-prize" data-input="promisePrize" maxlength="60" value="' + esc(sh.prize) + '" placeholder="e.g. a ring, a new book, dinner at the Spur"></label>' +
+    '<label class="btn sm block" style="cursor:pointer;margin:-4px 0 10px">📷 ' + (sh.photo ? 'Change the photo' : 'Add a photo of the real thing (optional)') + '<input type="file" accept="image/*" data-change="promisePhoto" class="hidden"></label>' +
+    (ms.length > 1 ? '<div class="small strong" style="margin-bottom:6px">Who gets it?</div>' + seg('to', who) + '<div class="small strong mt" style="margin-bottom:6px">Who\'s buying?</div>' + seg('by', who) : '') +
+    '<label class="field mt"><span>What has to happen</span><select class="input" data-change="promiseKind">' + PROMISE_KINDS.map(function(k){ return '<option value="' + k[0] + '"' + (sh.kind === k[0] ? ' selected' : '') + '>' + k[1] + '</option>'; }).join('') + '</select></label>';
+  if (sh.kind === 'save') html += '<div class="row" style="gap:8px"><label class="field" style="flex:1"><span>How much</span><input class="input" inputmode="decimal" id="f-pamount" data-input="promiseAmount" value="' + esc(sh.amount) + '" placeholder="R"></label><label class="field" style="flex:1"><span>By</span><input class="input" type="date" data-change="promiseUntil" value="' + sh.until + '" min="' + todayStr() + '"></label></div>';
+  if (sh.kind === 'goal') html += goals.length ? '<label class="field"><span>Which goal</span><select class="input" data-change="promiseGoal">' + goals.map(function(g){ return '<option value="' + g.id + '"' + (sh.goalId === g.id ? ' selected' : '') + '>' + esc(g.name) + '</option>'; }).join('') + '</select></label>' : '<p class="small neg">Add a goal on the Wealth tab first.</p>';
+  if (sh.kind === 'budget' || sh.kind === 'streak') html += '<label class="field"><span>' + (sh.kind === 'budget' ? 'How many months' : 'How many days') + '</span><input class="input" inputmode="numeric" id="f-pn" data-input="promiseN" value="' + esc(sh.n) + '"></label>';
+  return html + '<div class="nudge" style="cursor:default"><div class="e">🤝</div><div><div class="t" id="promise-sentence" style="white-space:normal">' + esc(promiseSentence(draft)) + '</div><div class="small muted">Nestegg checks it for you, and tells you both when it\'s won.</div></div></div>' +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="promiseSave">Make the promise</button></div>';
+};
+function promiseRefresh(){ var sh = ui.sheet, el = $('#promise-sentence'), art = $('#promise-art'); if (!el) return;
+  var d = {by:sh.by, to:sh.to, prize:sh.prize || 'the prize', kind:sh.kind, amount:parseAmount(sh.amount) || 0, goalId:sh.goalId, n:parseInt(sh.n, 10) || 0, until:sh.kind === 'save' ? sh.until : null, emoji:prizeEmoji(sh.prize), photo:sh.photo, status:'open'};
+  el.textContent = promiseSentence(d); art.innerHTML = prizeArt(d, 96, 0.35);
+}
+INPUTS.promisePrize = function(el){ ui.sheet.prize = el.value; promiseRefresh(); };
+INPUTS.promiseAmount = function(el){ ui.sheet.amount = el.value; promiseRefresh(); };
+INPUTS.promiseN = function(el){ ui.sheet.n = el.value; promiseRefresh(); };
+CHANGES.promiseUntil = function(el){ if (el.value) ui.sheet.until = el.value; promiseRefresh(); };
+CHANGES.promiseGoal = function(el){ ui.sheet.goalId = el.value; promiseRefresh(); };
+CHANGES.promiseKind = function(el){ ui.sheet.kind = el.value; renderSheet(); };
+CHANGES.promisePhoto = function(el){
+  var f = el.files && el.files[0], sh = ui.sheet; if (!f) return;
+  prizePhoto(f).then(function(url){ if (ui.sheet === sh) { sh.photo = url; renderSheet(); } }).catch(function(e){ toast(e.message); });
+};
+ACTIONS.promiseSet = function(el){ ui.sheet[el.getAttribute('data-k')] = el.getAttribute('data-id'); renderSheet(); };
+ACTIONS.promiseSave = function(){
+  var sh = ui.sheet, prize = String(sh.prize || '').trim(), amount = parseAmount(sh.amount), n = parseInt(sh.n, 10);
+  if (!prize) { toast('What\'s the prize?'); return; }
+  if (sh.kind === 'save' && !(amount > 0)) { toast('How much do you need to save?'); return; }
+  if (sh.kind === 'goal' && !byId('goals', sh.goalId)) { toast('Pick a goal'); return; }
+  if ((sh.kind === 'budget' || sh.kind === 'streak') && !(n > 0)) { toast(sh.kind === 'budget' ? 'How many months?' : 'How many days?'); return; }
+  var pr = {id:'pr-' + uid(), by:sh.by, to:sh.to, prize:prize, emoji:prizeEmoji(prize), photo:sh.photo || null, kind:sh.kind, amount:sh.kind === 'save' ? amount : null, goalId:sh.kind === 'goal' ? sh.goalId : null,
+    n:sh.kind === 'budget' || sh.kind === 'streak' ? n : null, from:todayStr(), until:sh.kind === 'save' ? sh.until : null, made:todayStr(), status:'open'};
+  upsert('promises', pr); saveState(); closeSheet(); render(true); toast('🤝 Promise made');
+  checkPromises(); // a promise can be won already, say a streak that's long enough
+};
+
+/* ---------- won, and kept ---------- */
+SHEETS.promiseWon = function(sh){
+  var pr = byId('promises', sh.id); if (!pr) return '';
+  var pg = promiseProgress(pr), giver = pr.by === 'us' ? 'You both' : whoName(pr.by);
+  return '<div class="center" style="padding:6px 0">' + prizeArt(pr, 150, 1) + '<div class="big-num" style="margin-top:8px">You did it!</div><p class="small">' + esc(promiseSentence(pr)) + '</p><p class="small muted">' + esc(pg.text) + '.</p>' +
+    '<p class="small strong">' + esc(giver) + ', ' + (pr.by === 'us' ? 'it\'s time to keep your promise.' : 'it\'s time to keep yours.') + '</p></div><button class="btn primary block" data-act="closeSheet">🎉 Yes!</button>';
+};
+ACTIONS.promiseKept = function(el){
+  var pr = Object.assign({}, byId('promises', el.getAttribute('data-id'))); if (!pr.id) return;
+  pr.status = 'kept'; pr.keptOn = todayStr(); upsert('promises', pr); saveState(); render(true); confetti(); toast('✅ Promise kept');
+};
+ACTIONS.promiseCost = function(el){ var pr = byId('promises', el.getAttribute('data-id')); openAdd({type:'expense', categoryId:'c-reward', note:pr.prize}); };
+ACTIONS.promiseDrop = function(el){ if (!confirmBox('Cancel this promise?')) return; removeItem('promises', el.getAttribute('data-id')); saveState(); render(true); };
+
+/* ---------- on the Rewards tab and Home ---------- */
+function promiseRow(pr){
+  var pg = promiseProgress(pr), lapsed = promiseLapsed(pr), left = pr.until && pr.status === 'open' && !lapsed ? daysBetween(todayStr(), pr.until) : null;
+  var state = pr.status === 'kept' ? '<span class="pill green">✅ Kept ' + esc(fmtDate(pr.keptOn)) + '</span>' : pr.status === 'won' ? '<span class="pill gold">🎉 Won! Time to keep it</span>' : lapsed ? '<span class="pill">Ran out of time</span>' : '';
+  return '<div class="promise" id="promise-' + pr.id + '"><div class="row" style="gap:14px;align-items:center">' + prizeArt(pr, 72, pg.pct) + '<div style="flex:1;min-width:0"><div class="strong" style="white-space:normal">' + esc(promiseSentence(pr)) + '</div>' +
+    (pr.status === 'open' && !lapsed ? '<div class="small muted" style="margin-top:4px">' + esc(pg.text) + (left != null ? ' · ' + left + ' day' + (left === 1 ? '' : 's') + ' left' : '') + '</div><div style="margin-top:6px">' + bar(pg.have, pg.need, '') + '</div>' : '<div style="margin-top:6px">' + state + '</div>') + '</div></div>' +
+    (pr.status === 'won' ? '<div class="btns mt"><button class="btn primary" data-act="promiseKept" data-id="' + pr.id + '">✅ I kept it</button><button class="btn" data-act="promiseCost" data-id="' + pr.id + '">Log what it cost</button></div>'
+      : pr.status === 'open' ? '<div class="right"><button class="btn sm ghost" data-act="promiseDrop" data-id="' + pr.id + '">' + (lapsed ? 'Remove' : 'Cancel') + '</button></div>' : '') + '</div>';
+}
+function promisesCard(){
+  var list = promisesLive(), shown = list.filter(function(pr){ return pr.status !== 'kept'; }), kept = list.filter(function(pr){ return pr.status === 'kept'; });
+  return '<div class="card span2" id="rw-promises"><div class="row between"><h2 style="margin:0">🤝 Promises</h2><button class="btn sm" data-act="promiseNew">+ Make one</button></div>' +
+    (shown.length ? shown.map(promiseRow).join('') : '<p class="small muted">Promise each other something real, like a ring, a book or a dinner out, for keeping to the plan. Nestegg keeps score, and the prize comes into focus as you get closer.</p>') +
+    (kept.length ? '<details class="mt"><summary class="small strong">Kept (' + kept.length + ')</summary>' + kept.map(promiseRow).join('') + '</details>' : '') + '</div>';
+}
+// Home: a promise to keep comes first; one that's nearly won is a reason to keep going
+function promiseHomeCard(){
+  var pr = live('promises').filter(function(x){ return x.status === 'won'; })[0];
+  if (pr) return '<div class="card span2" id="promise-home"><div class="row" style="gap:14px;align-items:center">' + prizeArt(pr, 64, 1) + '<div style="flex:1;min-width:0"><div class="strong">Promise won! ' + esc(pr.by === 'us' ? 'Time to keep it' : whoName(pr.by) + ', time to keep yours') + '</div><div class="small muted" style="white-space:normal">' + esc(promiseSentence(pr)) + '</div></div></div>' +
+    '<div class="btns mt"><button class="btn primary" data-act="promiseKept" data-id="' + pr.id + '">✅ I kept it</button><button class="btn" data-act="tab" data-id="rewards">See it</button></div></div>';
+  var near = live('promises').filter(function(x){ return x.status === 'open' && !promiseLapsed(x); }).map(function(x){ return {pr:x, pg:promiseProgress(x)}; }).filter(function(x){ return x.pg.pct >= 0.5 && !x.pg.won; }).sort(function(a, b){ return b.pg.pct - a.pg.pct; })[0];
+  if (!near) return '';
+  var p = near.pr, g = near.pg, gap = p.kind === 'save' || p.kind === 'goal' ? fmtR(g.need - g.have) + ' more' : p.kind === 'full' ? 'The full reward this month' : (g.need - g.have) + ' more ' + (p.kind === 'budget' ? 'month' : 'day') + (g.need - g.have === 1 ? '' : 's');
+  return '<div class="card span2" id="promise-home" data-act="tab" data-id="rewards" style="cursor:pointer"><div class="row" style="gap:14px;align-items:center">' + prizeArt(p, 56, g.pct) + '<div style="flex:1;min-width:0"><div class="strong" style="white-space:normal">' + esc(gap) + ' and ' + esc(promiseOutcome(p)) + '</div><div class="small muted">' + Math.round(g.pct * 100) + '% of the way there</div></div></div></div>';
+}
+
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
@@ -5844,6 +6031,7 @@ function runSync(interactive){
       device.dirty = _changes !== changesAtStart; device.lastSync = now(); device.syncError = '';
       var wasJoining = device.joining; device.joining = false; device.joinError = '';
       saveDevice(); if (wasJoining) render(true); else softRender();
+      if (!wasJoining) checkPromises();
       if (wasJoining) { toast('Household downloaded ✓'); openSheet('switchMe'); }
       else if (interactive) toast('Synced ✓');
     } else softRender();
@@ -6080,6 +6268,7 @@ function init(){
     }
   }
   checkRecap();
+  checkPromises();
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     // updateViaCache 'none': always ask GitHub for a new sw.js, so a new version is noticed straight away
     var hadWorker = !!navigator.serviceWorker.controller;
