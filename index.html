@@ -308,6 +308,32 @@ table.tbl{border-collapse:collapse;width:100%;font-size:13.5px}
 @keyframes pglow{0%,100%{filter:drop-shadow(0 0 0 rgba(217,154,30,0))}50%{filter:drop-shadow(0 0 12px rgba(217,154,30,.75))}}
 @media (prefers-reduced-motion:reduce){.prize,.prize.won{animation:none}}
 
+/* the duck */
+.duck-nest{display:flex;gap:12px;align-items:center;margin:10px 0 4px;position:relative}
+.duck-tap{flex:none;padding:0;background:none;border:0;line-height:0;cursor:pointer}
+.duck{overflow:visible;transform-origin:50% 85%}
+.duck .duck-egg{transform-origin:60px 96px;animation:dwobble 2.6s ease-in-out infinite}
+.duck.s1 .duck-egg{animation-duration:1.3s}
+.duck .duck-bird{transform-origin:60px 96px;animation:dbob 2.8s ease-in-out infinite}
+.duck.happy .duck-bird{animation:dbob 1.4s ease-in-out infinite}
+.duck.happy .duck-wing{transform-box:fill-box;transform-origin:15% 40%;animation:dflap 1.4s ease-in-out infinite}
+.duck.sleepy .duck-bird,.duck.sleepy .duck-egg{animation-duration:4.5s}
+.duck.hop{animation:dhop .45s ease-out}
+.duck-say{position:absolute;left:62px;top:-6px;background:var(--surface);box-shadow:var(--shadow);border-radius:12px;padding:3px 9px;font-size:13px;font-weight:700;opacity:0;pointer-events:none}
+.duck-say.on{animation:dsay 1.6s ease forwards}
+.duck-pond{display:flex;align-items:flex-end;gap:2px;flex-wrap:wrap;margin-top:6px}
+.duck-pond .tiny{margin-right:4px}
+.duck-grew .duck{animation:dpop .7s cubic-bezier(.2,1.6,.4,1) both}
+@keyframes dwobble{0%,100%{transform:rotate(0)}20%{transform:rotate(-5deg)}40%{transform:rotate(4deg)}60%{transform:rotate(-2deg)}80%{transform:rotate(0)}}
+@keyframes dbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+@keyframes dflap{0%,100%{transform:rotate(0)}50%{transform:rotate(-14deg)}}
+@keyframes dhop{0%{transform:translateY(0)}40%{transform:translateY(-14px) rotate(-6deg)}100%{transform:translateY(0)}}
+@keyframes dsay{0%{opacity:0;transform:translateY(6px)}15%,75%{opacity:1;transform:none}100%{opacity:0;transform:translateY(-6px)}}
+@keyframes dpop{0%{transform:scale(.3)}100%{transform:none}}
+@media (prefers-reduced-motion:reduce){.duck .duck-egg,.duck .duck-bird,.duck .duck-wing,.duck.hop,.duck-grew .duck{animation:none}}
+.duck.grew{animation:dpop .7s cubic-bezier(.2,1.6,.4,1) both}
+@media (prefers-reduced-motion:reduce){.duck.grew{animation:none}}
+
 </style>
 </head>
 <body>
@@ -327,7 +353,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261103154950' // set by tools/build.py
+  BUILD: '20261104095140' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises'];
@@ -1118,6 +1144,7 @@ function snapshot(){
 }
 function celebrate(before){
   var a = snapshot(), gained = a.pts - before.pts;
+  if (!before.today && a.today) setTimeout(function(){ duckCheck(true); }, 600);
   setTimeout(checkPromises, 900);
   if (!before.today && a.today) { toast('🔥 Checked in!' + (gained > 0 ? ' +' + fmtR(gained) + ' towards your reward.' : '') + ' Streak: ' + a.streak + ' day' + (a.streak===1?'':'s'), 'gold'); buzz(25); }
   else if (gained > 0) toast('+' + fmtR(gained) + ' towards your reward 🎁', 'gold');
@@ -1420,7 +1447,7 @@ function viewHome(){
     '<div class="kpis mt"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) +
     '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div>' + inHandRow(p) + '</div>';
   // check-in
-  html += '<div class="card"><div class="row between"><h2>Daily check-in</h2>' + (mine.today ? '<span class="pill green">✓ Done today</span>' : '<span class="pill gold">Not yet today</span>') + '</div>' +
+  html += '<div class="card"><div class="row between"><h2>Daily check-in</h2>' + (mine.today ? '<span class="pill green">✓ Done today</span>' : '<span class="pill gold">Not yet today</span>') + '</div>' + duckCard() +
     '<div class="streaks"><div class="streak ' + (mine.today?'done':'') + '"><div class="n">🔥 ' + mine.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">' + (mine.freezes ? '🧊×' + mine.freezes : '&nbsp;') + '</div></div>' +
     (ps ? '<div class="streak ' + (ps.today?'done':'') + '"><div class="n">🔥 ' + ps.streak + '</div><div class="l">' + esc(pr.name) + '</div><div class="f">' + (ps.freezes ? '🧊×' + ps.freezes : '&nbsp;') + '</div></div>' : '') +
     '<div class="streak ' + (cs.today?'done':'') + '"><div class="n">💞 ' + cs.streak + '</div><div class="l">Together</div><div class="f">' + (cs.freezes ? '🧊×' + cs.freezes : '&nbsp;') + '</div></div></div>' +
@@ -5673,6 +5700,108 @@ function promiseHomeCard(){
   return '<div class="card span2" id="promise-home" data-act="tab" data-id="rewards" style="cursor:pointer"><div class="row" style="gap:14px;align-items:center">' + prizeArt(p, 56, g.pct) + '<div style="flex:1;min-width:0"><div class="strong" style="white-space:normal">' + esc(gap) + ' and ' + esc(promiseOutcome(p)) + '</div><div class="small muted">' + Math.round(g.pct * 100) + '% of the way there</div></div></div></div>';
 }
 
+/* ===== Nestegg — the duck: an egg each payday that grows with every day you check in ===== */
+// The owner wanted a duck, and a monthly cycle rather than waiting up to 100 days. It counts the days you checked in this budget month
+// (not days in a row), so a missed day only slows it down. Each new month brings a fresh egg; last month's duck goes to the pond.
+// Drawn here as a small SVG in the soft three-quarter style the owner chose, so it costs nothing, works offline and stays sharp. Gentle motion, none when the phone asks for less.
+var DUCK_STAGES = [[0, 'An egg in the nest'], [3, 'A cracking egg'], [7, 'A duckling'], [14, 'A young duck'], [21, 'A grown duck'], [28, 'The crowned duck']];
+var DUCK_SAYS = ['Quack!', 'Quack quack!', 'Keep it up!', 'Good habits!', 'Quack! 💛'];
+
+function duckDays(memberId, start){
+  var end = periodEndFor(start), t = todayStr(), last = end < t ? end : t, n = 0;
+  for (var d = start; d <= last; d = addDays(d, 1)) if (didCheckIn(memberId, d)) n++;
+  return n;
+}
+function duckStage(n){ var s = 0; DUCK_STAGES.forEach(function(x, i){ if (n >= x[0]) s = i; }); return s; }
+
+/* ---------- drawing ---------- */
+function duckSvg(stage, mood, size){
+  // A soft three-quarter-view duck in the style the owner showed (a white 3D-looking duckling): one smooth body with soft light,
+  // one big glossy eye, a blushing cheek, an open smiling beak, a fluffy tuft and webbed feet. Our own drawing, not that picture.
+  var sleepy = mood && mood.indexOf('sleepy') >= 0, happy = mood && mood.indexOf('happy') >= 0;
+  var defs = '<defs>' +
+    '<radialGradient id="dkW" gradientUnits="userSpaceOnUse" cx="44" cy="34" r="78"><stop offset="0" stop-color="#ffffff"/><stop offset=".45" stop-color="#fbf8f3"/><stop offset=".8" stop-color="#ebe3d6"/><stop offset="1" stop-color="#d9cfbf"/></radialGradient>' +
+    '<radialGradient id="dkY" gradientUnits="userSpaceOnUse" cx="44" cy="34" r="78"><stop offset="0" stop-color="#fff6c2"/><stop offset=".45" stop-color="#ffe066"/><stop offset=".8" stop-color="#f7c33a"/><stop offset="1" stop-color="#e3a923"/></radialGradient>' +
+    '<linearGradient id="dkB" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffbd5c"/><stop offset="1" stop-color="#f08a1c"/></linearGradient>' +
+    '<radialGradient id="dkI" cx="45%" cy="40%" r="60%"><stop offset="0" stop-color="#7cc3db"/><stop offset=".55" stop-color="#2f6f8a"/><stop offset="1" stop-color="#14303d"/></radialGradient>' +
+    '<linearGradient id="dkE" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fffaf0"/><stop offset="1" stop-color="#efe3c8"/></linearGradient>' +
+    '<filter id="dkS" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.6"/></filter></defs>';
+  var nest = '<g><ellipse cx="60" cy="102" rx="46" ry="11" fill="#9a6a38"/><path d="M16 99q44 15 88 0M22 106q38 8 76 0" stroke="#734a22" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+    '<path d="M20 96l14 6M86 101l14-6M40 108l10-3M70 108l-10-3" stroke="#b8844c" stroke-width="2" stroke-linecap="round"/></g>';
+  if (stage <= 1) {
+    var egg = '<g class="duck-egg"><ellipse cx="60" cy="70" rx="24" ry="30" fill="url(#dkE)" stroke="#e5d4b2" stroke-width="2"/><ellipse cx="52" cy="56" rx="6" ry="9" fill="#fff" opacity=".55"/><circle cx="66" cy="76" r="2.6" fill="#e9d8b6"/><circle cx="57" cy="85" r="1.8" fill="#e9d8b6"/><circle cx="71" cy="61" r="1.6" fill="#e9d8b6"/>' +
+      (stage === 1 ? '<path d="M37 66l6-5 6 6 6-6 6 6 6-6 6 6 5-4" stroke="#8a7350" stroke-width="2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>' : '') + '</g>' +
+      (sleepy ? '<text x="84" y="38" font-size="13" font-weight="700" fill="#9a9a90">z z</text>' : '');
+    return '<svg class="duck s' + stage + ' ' + (mood || '') + '" viewBox="0 0 120 120" width="' + size + '" height="' + size + '" role="img" aria-label="' + esc(DUCK_STAGES[stage][1]) + '">' + defs + nest + egg + '</svg>';
+  }
+  var yellow = stage === 2, fill = yellow ? 'url(#dkY)' : 'url(#dkW)', soft = yellow ? '#f2b92e' : '#d8cdbb', wingFill = yellow ? '#ffe680' : '#fdfbf7';
+  var scale = [0, 0, 0.74, 0.86, 1, 1][stage];
+  var eye = sleepy ? '<path d="M50 38q8 6 16 0" stroke="#2b2522" stroke-width="2.4" fill="none" stroke-linecap="round"/><path d="M52 40l-2 3M57 41.5l-.5 3.4M62 40.5l1.4 3" stroke="#2b2522" stroke-width="1.6" stroke-linecap="round"/>'
+    : '<ellipse cx="58" cy="37" rx="8.6" ry="9.8" fill="#fff"/><ellipse cx="59.6" cy="38" rx="6.8" ry="7.8" fill="url(#dkI)"/><circle cx="60.2" cy="38.6" r="4.2" fill="#0b151c"/>' +
+      '<circle cx="62.6" cy="35" r="2" fill="#fff"/><circle cx="57.6" cy="41.4" r="0.9" fill="#fff" opacity=".9"/>' +
+      '<path d="M49.4 33.6q8-9.4 17.6-2" stroke="#2b2522" stroke-width="2.2" fill="none" stroke-linecap="round"/><path d="M50.6 31.6l-3-2.4M53.4 29.4l-2-3" stroke="#2b2522" stroke-width="1.5" stroke-linecap="round"/>' +
+      '<ellipse cx="74.2" cy="37.6" rx="1.7" ry="3.9" fill="#0b151c"/>';
+  var beak = happy || !sleepy
+    ? '<path d="M68 44.6c5-5.4 16-5.6 21.6-2.4 1.4 2.6-1.8 4.8-7.6 5-5.2.2-9.8.4-14 .8z" fill="url(#dkB)"/>' +
+      (happy ? '<path d="M68.6 48.2c5.6.6 11.6.6 16.4-.6-1.6 5.4-8.8 7.6-14.6 5.2z" fill="#f28a1f"/><path d="M69.4 48.4c5 .4 10 .3 14.2-.5-2.4 2.6-8.4 3.6-13.4 2.2z" fill="#b8434e"/>'
+        : '<path d="M68.4 48c5.4.4 10.8.2 15.4-.8-2 3-8 4.4-13.4 3z" fill="#f28a1f"/>') +
+      '<path d="M73 41.4q4-1.4 9 0" stroke="#fff" stroke-width="1.2" opacity=".55" fill="none" stroke-linecap="round"/>'
+    : '<path d="M68 44.6c5-5.4 16-5.6 21.6-2.4 1.4 2.6-1.8 4.8-7.6 5-5.2.2-9.8.4-14 .8z" fill="url(#dkB)"/><path d="M68.4 48c5.4.4 10.8.2 15.4-.8-2 3-8 4.4-13.4 3z" fill="#f28a1f"/>';
+  var bird = '<g class="duck-bird" transform="translate(60 101) scale(' + scale + ') translate(-60 -101)">' +
+    '<ellipse cx="60" cy="101" rx="28" ry="4" fill="#5c3b1b" opacity=".3" filter="url(#dkS)"/>' +
+    (yellow ? '' : '<g fill="#f7a23a" stroke="#e0862a" stroke-width=".8" stroke-linejoin="round"><path d="M48 92v6l-8 4.4c2.6 1.6 5.6 1.2 7.6.4 1.6 1.4 4.2 1.4 6 .2 1.8 1 4.2 1 5.6-.4L52 98v-6z"/><path d="M68 92v6l-6.6 4.4c2.6 1.6 5.6 1.2 7.6.4 1.6 1.4 4.2 1.4 6 .2 1.8 1 4.2 1 5.6-.4L72 98v-6z"/></g>') +
+    '<path d="M28 78c0-15 13-21 27-22 14-1 26 2 34-3 5-3 9-1 7 5 6-1 5 7-1 9-2 13-16 25-35 25-18 0-32-6-32-14z" fill="' + fill + '"/>' +
+    '<path d="M35 52c0 10 3 15 9 18l22-2c-3-6-4-12-4-17z" fill="' + fill + '"/>' +
+    '<circle cx="52" cy="38" r="23" fill="' + fill + '"/>' +
+    '<path d="M44 17c1-7 4-9 6-4 1-7 5-9 7-2 3-6 7-5 6 1-4-1-8 2-10 6-3-3-6-3-9-1z" fill="' + fill + '" stroke="' + soft + '" stroke-width=".7" stroke-linejoin="round"/>' +
+    '<path class="duck-wing" d="M56 74c8-9 26-9 35-1-5 1-4 7-10 8 0 5-8 7-12 4-8 1-15-4-13-11z" fill="' + wingFill + '" stroke="' + soft + '" stroke-width=".9"/>' +
+    '<path d="M66 75c4-2 9-2 13 0M68 80c4-1.6 8-1.6 11 0" stroke="' + soft + '" stroke-width=".8" fill="none" stroke-linecap="round" opacity=".8"/>' +
+    '<path d="M88 58c3-4 7-6 8-3" stroke="' + soft + '" stroke-width=".8" fill="none" opacity=".7"/>' +
+    '<ellipse cx="54" cy="50" rx="7" ry="4" fill="#ff8f9a" opacity=".5" filter="url(#dkS)"/>' + eye + beak +
+    (stage === 5 ? '<path d="M41 18v-11l5 6 4-9 4 9 5-6v11z" fill="#f5b301" stroke="#cf9100" stroke-width="1.2" stroke-linejoin="round" transform="rotate(-8 50 14)"/><circle cx="49.6" cy="10" r="1.6" fill="#e0405a"/>' : '') +
+    (sleepy ? '<text x="78" y="22" font-size="12" font-weight="700" fill="#9a9a90">z z</text>' : '') + '</g>';
+  var shell = stage === 2 ? '<path d="M34 86l6-7 6 6 6-8 6 7 6-8 6 8 6-7 6 7 4-2q0 21-26 21t-26-17z" fill="url(#dkE)" stroke="#e5d4b2" stroke-width="2" stroke-linejoin="round"/>' : '';
+  return '<svg class="duck s' + stage + ' ' + (mood || '') + '" viewBox="0 0 120 120" width="' + size + '" height="' + size + '" role="img" aria-label="' + esc(DUCK_STAGES[stage][1]) + '">' + defs + nest + bird + shell + '</svg>';
+}
+
+/* ---------- on the check-in card ---------- */
+function duckMood(today){ return today ? 'happy' : new Date().getHours() >= 17 ? 'sleepy' : ''; }
+function duckCard(){
+  var p = currentPeriod(), id = me().id, n = duckDays(id, p), st = duckStage(n), next = DUCK_STAGES[st + 1], today = didCheckIn(id, todayStr());
+  var grew = ui.duckGrew; ui.duckGrew = false;
+  var line = (grew ? 'It grew while you were away! ' : '') + (next ? (next[0] - n) + ' more day' + (next[0] - n === 1 ? '' : 's') + ' checked in and ' + (st < 2 ? 'it hatches' : 'it grows') + '.' : 'Fully grown! It joins your pond on payday.');
+  return '<div class="duck-nest" id="duck"><button class="duck-tap" data-act="duckTap" aria-label="Your duck">' + duckSvg(st, duckMood(today) + (grew ? ' grew' : ''), 92) + '</button><span class="duck-say" id="duck-say"></span>' +
+    '<div style="flex:1;min-width:0"><div class="strong">' + DUCK_STAGES[st][1] + '</div><div class="small muted">' + n + ' day' + (n === 1 ? '' : 's') + ' checked in this month. ' + line + '</div>' + duckPond() + '</div></div>';
+}
+// One duck for each month that got as far as hatching, newest first
+function duckPond(){
+  var id = me().id, p = prevPeriodStart(currentPeriod()), first = periodStartFor(firstActivity()), out = [];
+  for (var i = 0; i < 12 && p >= first; i++, p = prevPeriodStart(p)) { var st = duckStage(duckDays(id, p)); if (st >= 2) out.push('<span title="' + esc(periodName(p)) + ': ' + DUCK_STAGES[st][1] + '">' + duckSvg(st, '', 30) + '</span>'); }
+  return out.length ? '<div class="duck-pond" id="duck-pond"><span class="tiny muted">Your pond</span>' + out.join('') + '</div>' : '';
+}
+ACTIONS.duckTap = function(){
+  var el = $('#duck .duck'), say = $('#duck-say'); if (!el) return;
+  el.classList.remove('hop'); void el.offsetWidth; el.classList.add('hop'); buzz(15);
+  if (say) { say.textContent = DUCK_SAYS[Math.floor(Math.random() * DUCK_SAYS.length)]; say.classList.remove('on'); void say.offsetWidth; say.classList.add('on'); }
+};
+// A new stage is celebrated once on each phone; the first look at a month just notes where it's at. The full celebration is only
+// right after the day's first check-in, the moment it was earned; growing while you were away just makes the card pop, so opening
+// the app is never blocked.
+function duckCheck(show){
+  if (!state.household || (show && ui.sheet)) return;
+  var p = currentPeriod(), st = duckStage(duckDays(me().id, p)), seen = device.duckSeen || {};
+  if (seen[p] == null) { device.duckSeen = {}; device.duckSeen[p] = st; saveDevice(); return; }
+  if (st <= seen[p]) return;
+  device.duckSeen = Object.assign({}, seen); device.duckSeen[p] = st; saveDevice();
+  if (!show) { ui.duckGrew = true; render(true); return; }
+  openSheet('duckGrew', {stage:st}); if (st >= 2) setTimeout(confetti, 350); buzz(30);
+}
+SHEETS.duckGrew = function(sh){
+  var st = sh.stage, words = st === 1 ? 'Your egg is cracking!' : st === 2 ? 'Your egg hatched!' : st === 5 ? 'Your duck got its crown!' : st === 4 ? 'Your duck is all grown up!' : 'Your duckling is growing!';
+  return '<div class="center" style="padding:4px 0 8px"><div class="duck-grew">' + duckSvg(st, 'happy', 170) + '</div><div class="mid-num">' + words + '</div><p class="small muted">' + DUCK_STAGES[st][1] + ', from checking in ' + DUCK_STAGES[st][0] + ' days this month.' +
+    (DUCK_STAGES[st + 1] ? ' Keep going: ' + DUCK_STAGES[st + 1][0] + ' days and it grows again.' : ' It joins your pond on payday.') + '</p></div><button class="btn primary block" data-act="closeSheet">Quack! 🦆</button>';
+};
+
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
@@ -6269,6 +6398,7 @@ function init(){
   }
   checkRecap();
   checkPromises();
+  duckCheck(false);
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     // updateViaCache 'none': always ask GitHub for a new sw.js, so a new version is noticed straight away
     var hadWorker = !!navigator.serviceWorker.controller;
