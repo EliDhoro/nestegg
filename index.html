@@ -354,7 +354,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261104153528' // set by tools/build.py
+  BUILD: '20261104164003' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest'];
@@ -5780,8 +5780,9 @@ var INVEST_PRESETS = [
   ['luno', 'Luno', '🪙', 'https://www.luno.com/'], ['valr', 'VALR', '🪙', 'https://www.valr.com/'], ['easyequities', 'EasyEquities', '📈', 'https://www.easyequities.co.za/'],
   ['fnbshares', 'FNB Share Investing', '📈', 'https://www.fnb.co.za/for-me/save-and-invest/investments/start-investing.html'], ['satrix', 'SatrixNOW', '📈', 'https://satrix.co.za/platform'],
   ['10x', '10X Investments', '🏛️', 'https://www.10x.co.za/'], ['sygnia', 'Sygnia', '🏛️', 'https://www.sygnia.co.za/'], ['allangray', 'Allan Gray', '🏛️', 'https://www.allangray.co.za/'],
-  ['rsabonds', 'RSA Retail Savings Bonds', '🇿🇦', 'https://www.rsaretailbonds.gov.za/'], ['other', 'Another platform', '💼', '']];
+  ['rsabonds', 'RSA Retail Savings Bonds', '🏦', 'https://www.rsaretailbonds.gov.za/'], ['other', 'Another platform', '💼', '']];
 function investPreset(id){ return INVEST_PRESETS.filter(function(x){ return x[0] === id; })[0] || INVEST_PRESETS[INVEST_PRESETS.length - 1]; }
+function investIcon(iv){ return iv.preset && iv.preset !== 'other' ? investPreset(iv.preset)[2] : (iv.emoji || '💼'); } // a preset's icon follows the app, so a fixed one reaches platforms already added
 function invests(){ return live('invest').sort(function(a, b){ return (a.createdAt || 0) - (b.createdAt || 0); }); }
 function investSafeUrl(u){ return /^https:\/\/[^\s"'<>]+$/.test(u || '') ? u : ''; } // it's synced, so only a plain https link is ever opened
 
@@ -5816,7 +5817,7 @@ function investCard(){
   html += '<div class="kpis mt"><div class="kpi"><div class="l">Put in</div><div class="v">' + fmtR(totals.putIn) + '</div></div><div class="kpi"><div class="l">Worth now</div><div class="v">' + (totals.known ? fmtR(totals.worth) : '—') + '</div></div><div class="kpi"><div class="l">A month</div><div class="v">' + fmtR(totals.monthly) + '</div></div></div>';
   html += list.map(function(iv){
     var s = investStats(iv);
-    return '<div class="li tap" data-act="investOpen" data-id="' + iv.id + '" id="invest-' + iv.id + '"><div class="ico">' + esc(iv.emoji || '💼') + '</div><div class="main"><div class="t">' + esc(iv.name) + (iv.luno ? ' <span class="pill green" style="font-size:11px">live</span>' : '') + '</div>' +
+    return '<div class="li tap" data-act="investOpen" data-id="' + iv.id + '" id="invest-' + iv.id + '"><div class="ico">' + esc(investIcon(iv)) + '</div><div class="main"><div class="t">' + esc(iv.name) + (iv.luno ? ' <span class="pill green" style="font-size:11px">live</span>' : '') + '</div>' +
       '<div class="s" style="white-space:normal">Put in ' + fmtR(s.putIn) + ' · ' + investGrowthHtml(s) + '</div>' +
       (+iv.monthly > 0 ? '<div class="tiny muted">' + fmtR(s.thisMonth) + ' of ' + fmtR(iv.monthly) + ' moved this month</div>' : '') + '</div><span class="amt">' + (s.worth == null ? '—' : fmtR(s.worth)) + '</span></div>';
   }).join('');
@@ -5853,7 +5854,7 @@ ACTIONS.investOpen = function(el){ openSheet('invest', {id:el.getAttribute('data
 SHEETS.invest = function(sh){
   var iv = byId('invest', sh.id); if (!iv || iv.deleted) return '<p class="small muted">Nothing here any more.</p>';
   var s = investStats(iv), url = investSafeUrl(iv.url), moving = sh.amount !== '' ? sh.amount : (s.due ? String(round2(+iv.monthly - s.thisMonth)) : '');
-  return '<h2>' + esc(iv.emoji || '💼') + ' ' + esc(iv.name) + '</h2>' +
+  return '<h2>' + esc(investIcon(iv)) + ' ' + esc(iv.name) + '</h2>' +
     '<div class="kpis"><div class="kpi"><div class="l">Put in</div><div class="v">' + fmtR(s.putIn) + '</div></div><div class="kpi"><div class="l">Worth now</div><div class="v">' + (s.worth == null ? '—' : fmtR(s.worth)) + '</div></div><div class="kpi"><div class="l">Growth</div><div class="v" style="font-size:15px">' + investGrowthHtml(s) + '</div></div></div>' +
     (s.at ? '<p class="tiny muted" style="margin:4px 0 0">Value from ' + esc(fmtDate(s.at, true)) + (iv.luno ? ', read from Luno' : '') + '.</p>' : '') + investSpark(s.vals) +
     (url ? '<a class="btn primary block mt" id="invest-go" href="' + esc(url) + '" target="_blank" rel="noopener">Open ' + esc(iv.name) + '</a>' : '') +
