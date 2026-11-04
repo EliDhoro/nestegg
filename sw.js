@@ -1,6 +1,6 @@
 /* Nestegg service worker — makes the app open instantly and work offline. */
-var CACHE = 'nestegg-20261104095140', LIB = 'nestegg-lib';
-var SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
+var CACHE = 'nestegg-20261104133057', LIB = 'nestegg-lib';
+var SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'].concat(['./duck/crack-open.webp', './duck/crowned-open.webp', './duck/duckling-open.webp', './duck/egg-open.webp', './duck/grown-open.webp', './duck/young-open.webp']);
 
 self.addEventListener('install', function(e){
   // 'reload' skips the browser's own cache, so a new version never installs an old copy of the app
