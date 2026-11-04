@@ -354,10 +354,10 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261104133057' // set by tools/build.py
+  BUILD: '20261104153528' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
-var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises'];
+var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest'];
 var TIERS = [
   {name:'Bronze', min:0, emoji:'🥉'},
   {name:'Silver', min:400, emoji:'🥈'},
@@ -452,7 +452,7 @@ function defaultCatName(name){ return name.replace('%m1%', (member('m1') || {nam
 function baseGroups(h){ return (h && h.groups) || LEGACY_GROUPS; }
 
 function blankState(){
-  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[]};
+  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[], invest:[]};
 }
 function defaultDevice(){
   return {memberId:null, clientId:'', autoSync:null, driveFileId:null, token:null, tokenExp:0, lastSync:0, syncError:'',
@@ -1404,7 +1404,8 @@ function sortTx(a){ return a.slice().sort(function(x,y){ return x.date !== y.dat
 /* ---------- HOME ---------- */
 function nudges(){
   var out = [], p = currentPeriod(), s = periodSummary(p), d = new Date(), st = memberStreak(me().id);
-  if (!st.today && st.streak >= 2 && d.getHours() >= 17) out.push({e:'🔥', t:'Your ' + st.streak + '-day streak ends at midnight', s:'Log today\'s spending, or tap No spend today. ' + (st.freezes ? 'A freeze would save it, but keep those for emergencies.' : 'You have no freezes left.'), act:'quickAdd', id:'', cls:'gold'});
+  out = out.concat(investNudges());
+  if (!st.today && st.streak >= 2 && d.getHours() >= 17) out.unshift({e:'🔥', t:'Your ' + st.streak + '-day streak ends at midnight', s:'Log today\'s spending, or tap No spend today. ' + (st.freezes ? 'A freeze would save it, but keep those for emergencies.' : 'You have no freezes left.'), act:'quickAdd', id:'', cls:'gold'});
   if (!live('tx').length) out.push({e:'📄', t:'Bring in your bank statements', s:'Import FNB or GoTyme statements to see where your money really goes.', act:'view', id:'import', cls:'blue'});
   if (s.income === 0) out.push({e:'💰', t:'Payday? Log your income', s:'Record what came in so every rand can get a job.', act:'addType', id:'income', cls:'green'});
   if (s.budgeted === 0) out.push({e:'📊', t:'Set up your budget', s:'Give each category a monthly amount.', act:'tab', id:'budget', cls:'gold'});
@@ -1894,7 +1895,7 @@ function viewWealth(){
       '</div>';
   });
   html += '</div>';
-  html += accountsCard();
+  html += accountsCard() + investCard();
   // net worth
   html += '<div class="card"><div class="row between"><h2>Net worth</h2><button class="btn ghost sm" data-act="editNW">Update</button></div>';
   if (!nw.length) html += '<div class="empty"><span class="e">📈</span>What you own minus what you owe. Update it once a month and watch the line climb.<br><button class="btn primary mt" data-act="editNW">Add first snapshot</button></div>';
@@ -4555,7 +4556,7 @@ function priceCheck(name){
   // the key's plan doesn't include search: go straight to the shops, and ask Google again once a month in case that changes
   if (device.noSearch && daysBetween(device.noSearch, todayStr()) < 30) { openSheet('priceCheck', {name:name, shops:true}); return; }
   if (!device.aiOn) { closeSheet(); ACTIONS.openAiSetup(); toast('Turn on Google\'s AI first'); return; }
-  openSheet('priceCheck', {name:name, busy:+device.relayVersion < SCRIPT_VERSION ? false : true, old:+device.relayVersion < SCRIPT_VERSION});
+  openSheet('priceCheck', {name:name, busy:+device.relayVersion < SEARCH_SCRIPT ? false : true, old:+device.relayVersion < SEARCH_SCRIPT});
   if (ui.sheet.old) return;
   var sh = ui.sheet;
   Relay.search(pricePrompt(name)).then(function(j){
@@ -5768,6 +5769,189 @@ SHEETS.duckGrew = function(sh){
     (DUCK_STAGES[st + 1] ? ' Keep going: ' + DUCK_STAGES[st + 1][0] + ' days and it grows again.' : ' It joins your pond on payday.') + '</p></div><button class="btn primary block" data-act="closeSheet">Cheep! 🐥</button>';
 };
 
+/* ===== Nestegg — investments: plan it, open the platform, record what you moved, see how it's growing ===== */
+// The owner asked for help investing with Luno, EasyEquities and the like, but never advice: what to buy, when, and the buying itself
+// stay with the FSCA-licensed platform. Nestegg budgets a monthly amount per platform, nudges on payday, opens the platform, records
+// the money moved (a 'saving' entry with investId, so it counts as paying yourselves first), and shows what it's worth now.
+// A platform ('invest', synced): {id, preset, name, emoji, url, monthly, start (put in before Nestegg), values:[{d, v}], luno}.
+// Values are typed in by hand, except Luno, which the sync script reads with a read-only key (lunoRefresh). Growth isn't income: it
+// stays out of the budget and In hand until money comes back out.
+var INVEST_PRESETS = [
+  ['luno', 'Luno', '🪙', 'https://www.luno.com/'], ['valr', 'VALR', '🪙', 'https://www.valr.com/'], ['easyequities', 'EasyEquities', '📈', 'https://www.easyequities.co.za/'],
+  ['fnbshares', 'FNB Share Investing', '📈', 'https://www.fnb.co.za/for-me/save-and-invest/investments/start-investing.html'], ['satrix', 'SatrixNOW', '📈', 'https://satrix.co.za/platform'],
+  ['10x', '10X Investments', '🏛️', 'https://www.10x.co.za/'], ['sygnia', 'Sygnia', '🏛️', 'https://www.sygnia.co.za/'], ['allangray', 'Allan Gray', '🏛️', 'https://www.allangray.co.za/'],
+  ['rsabonds', 'RSA Retail Savings Bonds', '🇿🇦', 'https://www.rsaretailbonds.gov.za/'], ['other', 'Another platform', '💼', '']];
+function investPreset(id){ return INVEST_PRESETS.filter(function(x){ return x[0] === id; })[0] || INVEST_PRESETS[INVEST_PRESETS.length - 1]; }
+function invests(){ return live('invest').sort(function(a, b){ return (a.createdAt || 0) - (b.createdAt || 0); }); }
+function investSafeUrl(u){ return /^https:\/\/[^\s"'<>]+$/.test(u || '') ? u : ''; } // it's synced, so only a plain https link is ever opened
+
+// What's gone in, what it's worth, and how this month is going
+function investStats(iv){
+  var moved = live('tx').filter(function(t){ return t.type === 'saving' && t.investId === iv.id; }), p = currentPeriod(), end = periodEndFor(p);
+  var putIn = round2((+iv.start || 0) + sum(moved, function(t){ return t.amount; }));
+  var thisMonth = round2(sum(moved.filter(function(t){ return t.date >= p && t.date <= end; }), function(t){ return t.amount; }));
+  var vals = (iv.values || []).slice().sort(function(a, b){ return a.d < b.d ? -1 : 1; }), last = vals[vals.length - 1];
+  var worth = last ? +last.v : null, growth = worth == null ? null : round2(worth - putIn);
+  return {putIn:putIn, thisMonth:thisMonth, worth:worth, at:last ? last.d : null, growth:growth, pct:growth != null && putIn > 0 ? growth / putIn * 100 : null, vals:vals, due:+iv.monthly > 0 && thisMonth < +iv.monthly};
+}
+function investGrowthHtml(s){
+  if (s.growth == null) return '<span class="muted">Update its value to see growth</span>';
+  var up = s.growth >= 0;
+  return '<span class="' + (up ? 'pos' : 'neg') + '">' + (up ? '+' : '−') + fmtR(Math.abs(s.growth)) + (s.pct != null ? ' (' + (up ? '+' : '−') + Math.abs(s.pct).toFixed(1) + '%)' : '') + '</span>';
+}
+// A small line of the value over time, from the readings kept
+function investSpark(vals){
+  if (vals.length < 2) return '';
+  var vs = vals.map(function(x){ return +x.v; }), lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs), span = hi - lo || 1;
+  var pts = vs.map(function(v, i){ return (i / (vs.length - 1) * 100).toFixed(1) + ',' + (30 - (v - lo) / span * 26 - 2).toFixed(1); }).join(' ');
+  return '<svg viewBox="0 0 100 30" preserveAspectRatio="none" style="width:100%;height:42px;margin-top:6px" aria-label="Value over time"><polyline points="' + pts + '" fill="none" stroke="var(--brand)" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>';
+}
+
+/* ---------- on the Wealth tab ---------- */
+function investCard(){
+  var list = invests(), totals = {putIn:0, worth:0, monthly:0, known:true};
+  list.forEach(function(iv){ var s = investStats(iv); totals.putIn += s.putIn; totals.monthly += +iv.monthly || 0; if (s.worth == null) totals.known = false; else totals.worth += s.worth; });
+  var html = '<div class="card span2" id="invest"><div class="row between"><h2 style="margin:0">📈 Investments</h2><button class="btn sm" data-act="investAdd">+ Add</button></div>';
+  if (!list.length) return html + '<p class="small muted">Add the platforms you invest with, like Luno, EasyEquities or a retirement fund. Nestegg budgets what goes in each month, reminds you on payday, opens the platform and shows how it\'s growing. It never tells you what to buy.</p></div>';
+  html += '<div class="kpis mt"><div class="kpi"><div class="l">Put in</div><div class="v">' + fmtR(totals.putIn) + '</div></div><div class="kpi"><div class="l">Worth now</div><div class="v">' + (totals.known ? fmtR(totals.worth) : '—') + '</div></div><div class="kpi"><div class="l">A month</div><div class="v">' + fmtR(totals.monthly) + '</div></div></div>';
+  html += list.map(function(iv){
+    var s = investStats(iv);
+    return '<div class="li tap" data-act="investOpen" data-id="' + iv.id + '" id="invest-' + iv.id + '"><div class="ico">' + esc(iv.emoji || '💼') + '</div><div class="main"><div class="t">' + esc(iv.name) + (iv.luno ? ' <span class="pill green" style="font-size:11px">live</span>' : '') + '</div>' +
+      '<div class="s" style="white-space:normal">Put in ' + fmtR(s.putIn) + ' · ' + investGrowthHtml(s) + '</div>' +
+      (+iv.monthly > 0 ? '<div class="tiny muted">' + fmtR(s.thisMonth) + ' of ' + fmtR(iv.monthly) + ' moved this month</div>' : '') + '</div><span class="amt">' + (s.worth == null ? '—' : fmtR(s.worth)) + '</span></div>';
+  }).join('');
+  return html + '<p class="tiny muted mt" style="margin-bottom:0">Growth isn\'t counted as income until you take money out. Nestegg doesn\'t give investment advice: what to buy and when is your choice, made on the licensed platform.</p></div>';
+}
+
+/* ---------- adding one ---------- */
+ACTIONS.investAdd = function(){ openSheet('investAdd', {preset:'luno', name:'', monthly:'', start:''}); };
+SHEETS.investAdd = function(sh){
+  var other = sh.preset === 'other';
+  return '<h2>📈 Add a platform</h2><div class="chips">' + INVEST_PRESETS.map(function(x){ return '<button class="chip' + (sh.preset === x[0] ? ' on' : '') + '" data-act="investPick" data-id="' + x[0] + '">' + x[2] + ' ' + esc(x[1]) + '</button>'; }).join('') + '</div>' +
+    (other ? '<label class="field mt"><span>Name</span><input class="input" id="f-ivname" data-input="ivName" maxlength="40" value="' + esc(sh.name) + '"></label><label class="field"><span>Its website (optional)</span><input class="input" id="f-ivurl" data-input="ivUrl" placeholder="https://" value="' + esc(sh.url || '') + '"></label>' : '') +
+    '<label class="field mt"><span>How much you plan to put in each month (optional)</span><input class="input" id="f-ivmonthly" inputmode="decimal" data-input="ivMonthly" placeholder="R" value="' + esc(sh.monthly) + '"></label>' +
+    '<label class="field"><span>Already in it before Nestegg (optional)</span><input class="input" id="f-ivstart" inputmode="decimal" data-input="ivStart" placeholder="R" value="' + esc(sh.start) + '"></label>' +
+    '<p class="tiny muted">New to a platform? Check it\'s licensed on the <a href="https://www.fsca.co.za/" target="_blank" rel="noopener">FSCA</a> website first.</p>' +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="investSave">Add</button></div>';
+};
+ACTIONS.investPick = function(el){ ui.sheet.preset = el.getAttribute('data-id'); renderSheet(); };
+INPUTS.ivName = function(el){ ui.sheet.name = el.value; };
+INPUTS.ivUrl = function(el){ ui.sheet.url = el.value; };
+INPUTS.ivMonthly = function(el){ ui.sheet.monthly = el.value; };
+INPUTS.ivStart = function(el){ ui.sheet.start = el.value; };
+ACTIONS.investSave = function(){
+  var sh = ui.sheet, pr = investPreset(sh.preset), other = sh.preset === 'other', name = other ? String(sh.name || '').trim() : pr[1];
+  if (!name) { toast('What\'s it called?'); return; }
+  var url = other ? investSafeUrl(String(sh.url || '').trim()) : pr[3];
+  if (other && sh.url && !url) { toast('The website must start with https://'); return; }
+  upsert('invest', {id:'iv-' + uid(), preset:pr[0], name:name.slice(0, 40), emoji:pr[2], url:url, monthly:Math.max(0, parseAmount(sh.monthly) || 0), start:Math.max(0, parseAmount(sh.start) || 0), values:[], createdAt:now()});
+  saveState(); closeSheet(); render(true); toast(name + ' added');
+};
+
+/* ---------- one platform ---------- */
+ACTIONS.investOpen = function(el){ openSheet('invest', {id:el.getAttribute('data-id'), amount:''}); };
+SHEETS.invest = function(sh){
+  var iv = byId('invest', sh.id); if (!iv || iv.deleted) return '<p class="small muted">Nothing here any more.</p>';
+  var s = investStats(iv), url = investSafeUrl(iv.url), moving = sh.amount !== '' ? sh.amount : (s.due ? String(round2(+iv.monthly - s.thisMonth)) : '');
+  return '<h2>' + esc(iv.emoji || '💼') + ' ' + esc(iv.name) + '</h2>' +
+    '<div class="kpis"><div class="kpi"><div class="l">Put in</div><div class="v">' + fmtR(s.putIn) + '</div></div><div class="kpi"><div class="l">Worth now</div><div class="v">' + (s.worth == null ? '—' : fmtR(s.worth)) + '</div></div><div class="kpi"><div class="l">Growth</div><div class="v" style="font-size:15px">' + investGrowthHtml(s) + '</div></div></div>' +
+    (s.at ? '<p class="tiny muted" style="margin:4px 0 0">Value from ' + esc(fmtDate(s.at, true)) + (iv.luno ? ', read from Luno' : '') + '.</p>' : '') + investSpark(s.vals) +
+    (url ? '<a class="btn primary block mt" id="invest-go" href="' + esc(url) + '" target="_blank" rel="noopener">Open ' + esc(iv.name) + '</a>' : '') +
+    '<div class="small strong mt">Moved money in?</div><div class="row" style="gap:8px"><input class="input" id="f-ivmove" inputmode="decimal" data-input="ivMove" placeholder="R" value="' + esc(moving) + '" style="flex:1;min-width:0"><button class="btn" data-act="investMoved">Record it</button></div>' +
+    '<p class="tiny muted" style="margin:4px 0 0">Records it as saved this month, and counts towards paying yourselves first.' + (+iv.monthly > 0 ? ' Plan: ' + fmtR(iv.monthly) + ' a month, ' + fmtR(s.thisMonth) + ' so far.' : '') + '</p>' +
+    (iv.luno && iv.assets && iv.assets.length ? '<div class="small strong mt">In your Luno account</div>' + iv.assets.map(function(a){ return '<div class="row between small" style="padding:2px 0"><span class="muted">' + esc(String(+a.amount)) + ' ' + esc(a.asset === 'XBT' ? 'BTC' : a.asset) + '</span><span>' + (a.rand == null ? 'no rand price' : fmtR(a.rand)) + '</span></div>'; }).join('') : '') +
+    (iv.luno ? '<button class="btn block mt" data-act="lunoRefreshNow">↻ Read Luno again</button>'
+      : '<div class="small strong mt">What it\'s worth now</div><div class="row" style="gap:8px"><input class="input" id="f-ivvalue" inputmode="decimal" placeholder="R" style="flex:1;min-width:0"><button class="btn" data-act="investValue">Update</button></div>' +
+        (iv.preset === 'luno' ? '<button class="btn block mt" data-act="lunoSetup">🔗 Connect Luno (read-only), so this updates by itself</button>' : '')) +
+    '<label class="field mt"><span>Monthly plan</span><input class="input" id="f-ivplan" inputmode="decimal" value="' + esc(String(iv.monthly || '')) + '" placeholder="R" data-change="investPlan"></label>' +
+    '<div class="btns"><button class="btn danger" data-act="investDelete">Remove</button><button class="btn" data-act="closeSheet">Done</button></div>';
+};
+INPUTS.ivMove = function(el){ ui.sheet.amount = el.value; };
+ACTIONS.investMoved = function(){
+  var iv = byId('invest', ui.sheet.id), a = parseAmount($('#f-ivmove').value);
+  if (!(a > 0)) { toast('How much did you move?'); return; }
+  var before = snapshot();
+  upsert('tx', {id:'t-' + uid(), type:'saving', amount:a, date:todayStr(), memberId:me().id, note:iv.name, investId:iv.id, goalId:null, categoryId:null, source:'manual', createdOn:todayStr(), createdAt:now()});
+  saveState(); ui.sheet.amount = ''; renderSheet(); render(true); celebrate(before); toast(fmtR(a) + ' to ' + iv.name + ' recorded');
+};
+ACTIONS.investValue = function(){
+  var iv = Object.assign({}, byId('invest', ui.sheet.id)), v = parseAmount($('#f-ivvalue').value);
+  if (!(v >= 0)) { toast('What\'s it worth now?'); return; }
+  iv.values = investAddValue(iv.values, todayStr(), v); upsert('invest', iv); saveState(); renderSheet(); render(true);
+};
+// One reading a day: a later one the same day replaces it
+function investAddValue(vals, d, v){ return (vals || []).filter(function(x){ return x.d !== d; }).concat([{d:d, v:round2(v)}]).sort(function(a, b){ return a.d < b.d ? -1 : 1; }).slice(-120); }
+CHANGES.investPlan = function(el){ var iv = Object.assign({}, byId('invest', ui.sheet.id)); iv.monthly = Math.max(0, parseAmount(el.value) || 0); upsert('invest', iv); saveState(); renderSheet(); render(true); };
+ACTIONS.investDelete = function(){
+  if (!confirmBox('Remove this platform from Nestegg? Money you recorded moving stays in your history as savings.')) return;
+  var iv = byId('invest', ui.sheet.id); if (iv && iv.luno) Relay.call({action:'setLuno', id:''}).catch(function(){});
+  removeItem('invest', ui.sheet.id); saveState(); closeSheet(); render(true);
+};
+// Payday: what's planned and not yet moved, with the platform one tap away
+function investNudges(){
+  var p = currentPeriod(), s = periodSummary(p);
+  if (s.dayIndex > 5) return [];
+  return invests().filter(function(iv){ return investStats(iv).due; }).slice(0, 1).map(function(iv){
+    var left = round2(+iv.monthly - investStats(iv).thisMonth);
+    return {e:'📈', t:fmtR(left) + ' for ' + iv.name + ' is ready', s:'Move it now and pay yourselves first. Nestegg opens ' + iv.name + ' for you.', act:'investOpen', id:iv.id, cls:'green'};
+  });
+}
+
+/* ---------- Luno, read-only: the key lives in the sync script, never on the phones ---------- */
+ACTIONS.lunoSetup = function(){ openSheet('lunoSetup', {}); };
+SHEETS.lunoSetup = function(sh){
+  if (!Relay.ready()) return '<h2>🔗 Connect Luno</h2><p class="small muted">This uses your automatic sync, so set that up first (⚙️ Settings → Sync).</p><button class="btn block" data-act="closeSheet">OK</button>';
+  if (+device.relayVersion < LUNO_SCRIPT) return '<h2>🔗 Connect Luno</h2><p class="small muted">Reading Luno needs a quick update to your sync script. It takes about 3 minutes, on the computer, and your budget isn\'t touched.</p><button class="btn primary block" data-act="openRelayUpdate">Show me how</button>';
+  return '<h2>🔗 Connect Luno, read-only</h2><ol class="small" style="padding-left:18px;margin:0 0 8px">' +
+    '<li>On Luno (the website is easiest): <b>Settings → API keys → Create API key</b>.</li><li>Choose <b>Read-only access</b>. Nothing else: Nestegg never needs to trade or withdraw.</li><li>Copy the <b>Key ID</b> and <b>Secret</b> into the boxes below.</li></ol>' +
+    '<label class="field"><span>Key ID</span><input class="input" id="f-lunoid" autocomplete="off" spellcheck="false"></label><label class="field"><span>Secret</span><input class="input" id="f-lunosecret" type="password" autocomplete="off" spellcheck="false"></label>' +
+    (sh.error ? '<p class="small neg" id="luno-error">' + esc(sh.error) + '</p>' : '') + (sh.busy ? '<p class="small"><span class="spinner"></span> Checking with Luno…</p>' : '') +
+    '<p class="tiny muted">The key goes to your own sync script once and stays there, like your Gemini key. It isn\'t kept on this phone or in your synced data. A read-only key can only look: it can\'t buy, sell or move money.</p>' +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="lunoConnect"' + (sh.busy ? ' disabled' : '') + '>Connect</button></div>';
+};
+ACTIONS.lunoConnect = function(){
+  var id = ($('#f-lunoid').value || '').trim(), secret = ($('#f-lunosecret').value || '').trim(), sh = ui.sheet;
+  if (!id || !secret) { toast('Paste the Key ID and the Secret'); return; }
+  sh.busy = true; sh.error = ''; renderSheet();
+  Relay.call({action:'setLuno', id:id, secret:secret}).then(function(j){
+    if (ui.sheet !== sh) return;
+    sh.busy = false;
+    if (!j.ok) { sh.error = j.error === 'luno' ? 'Luno didn\'t accept that key: ' + String(j.detail || '').slice(0, 120) : +j.version < LUNO_SCRIPT ? 'Your sync script needs the update first.' : 'The sync script answered: ' + (j.error || 'unknown'); renderSheet(); return; }
+    var lunos = invests().filter(function(iv){ return iv.preset === 'luno'; });
+    lunos.forEach(function(iv){ iv = Object.assign({}, iv); iv.luno = true; upsert('invest', iv); });
+    saveState(); closeSheet(); toast('🔗 Luno connected'); lunoRefresh(true);
+  }).catch(function(e){ if (ui.sheet === sh) { sh.busy = false; sh.error = e.message || String(e); renderSheet(); } });
+};
+// What the Luno account holds, in rand at Luno's own prices: rand as it is, a coin by its rand pair, or through Bitcoin if it has none
+function lunoWorth(balances, tickers){
+  var px = {}; (tickers || []).forEach(function(t){ px[t.pair] = +t.last_trade || 0; });
+  var total = 0, assets = [];
+  (balances || []).forEach(function(b){
+    var n = (+b.balance || 0) + (+b.unconfirmed || 0); if (!(n > 0)) return;
+    var a = b.asset, rate = a === 'ZAR' ? 1 : px[a + 'ZAR'] || (px[a + 'XBT'] && px['XBTZAR'] ? px[a + 'XBT'] * px['XBTZAR'] : 0);
+    if (!rate) { assets.push({asset:a, amount:n, rand:null}); return; }
+    var r = round2(n * rate); total += r; assets.push({asset:a, amount:n, rand:r});
+  });
+  return {total:round2(total), assets:assets};
+}
+// At most every few hours, or when asked: the script reads the balances, Nestegg keeps today's value
+var lunoBusy = false;
+function lunoRefresh(force){
+  var list = invests().filter(function(iv){ return iv.luno; });
+  if (!list.length || lunoBusy || !Relay.ready() || +device.relayVersion < LUNO_SCRIPT) return;
+  if (!force && device.lunoAt && now() - device.lunoAt < 4 * 3600 * 1000) return;
+  lunoBusy = true;
+  Relay.call({action:'luno'}).then(function(j){
+    lunoBusy = false;
+    if (!j.ok) { if (force) toast(j.error === 'no-luno' ? 'Luno isn\'t connected on the sync script' : 'Luno: ' + String(j.detail || j.error).slice(0, 100)); return; }
+    var w = lunoWorth(j.balance, j.tickers);
+    list.forEach(function(iv){ iv = Object.assign({}, iv); iv.values = investAddValue(iv.values, todayStr(), w.total); iv.assets = w.assets; upsert('invest', iv); });
+    device.lunoAt = now(); saveDevice(); saveState(); softRender(); if (ui.sheet && ui.sheet.type === 'invest') renderSheet();
+    if (force) toast('Luno: ' + fmtR(w.total));
+  }).catch(function(e){ lunoBusy = false; if (force) toast(e.message || String(e)); });
+}
+ACTIONS.lunoRefreshNow = function(){ lunoRefresh(true); };
+
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
@@ -5834,7 +6018,7 @@ var Drive = {
 // deploys this script (free) once; it keeps the data file in their Drive and serves it to devices that know the key.
 // No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
 // so a device that missed something merges first and tries again — nobody's changes get overwritten.
-var SCRIPT_VERSION = 5, AI_SCRIPT = 4; // the newest RELAY_SCRIPT (keep in step with its VERSION line), and the oldest that can use an AI key
+var SCRIPT_VERSION = 6, AI_SCRIPT = 4, SEARCH_SCRIPT = 5, LUNO_SCRIPT = 6; // the newest RELAY_SCRIPT (keep in step with its VERSION line), and the oldest each feature needs, so a new version only asks for an update where it's needed
 var SEARCH_MODELS = ['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']; // tried in turn by the script, so this can change without a redeploy. Keys made after mid-2026 can't use gemini-2.5-flash
 // Gemini models to try, newest first; sent with each request so a renamed model only needs an app update
 var AI_MODELS = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
@@ -5842,7 +6026,7 @@ var RELAY_SCRIPT = [
   '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
   "var KEY = '%KEY%';",
   "var FILE = 'nestegg-household-data.json';",
-  'var VERSION = 5;',
+  'var VERSION = 6;',
   '',
   'function doGet(e) { return reply({ok: true, nestegg: true, version: VERSION}); }',
   'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} var out = handle(p); out.version = VERSION; return reply(out); }',
@@ -5853,6 +6037,8 @@ var RELAY_SCRIPT = [
   "  if (p.action === 'ocr') return readReceipt(p);",
   "  if (p.action === 'setGemini') return setGemini(p);",
   "  if (p.action === 'search') return searchWeb(p);",
+  "  if (p.action === 'setLuno') return setLuno(p);",
+  "  if (p.action === 'luno') return lunoBalances();",
   '  var lock = LockService.getScriptLock(); lock.waitLock(20000);',
   '  try {',
   "    var props = PropertiesService.getScriptProperties(), rev = Number(props.getProperty('rev') || 0), file = dataFile(props);",
@@ -5909,6 +6095,24 @@ var RELAY_SCRIPT = [
   "  var test = askGemini(k, [{text: 'Reply with this JSON: {\"ok\": true}'}], p.models);",
   "  if (test.error) return {ok: false, error: 'gemini', detail: test.error};",
   "  props.setProperty('gemini', k); return {ok: true, ai: true};",
+  '}',
+  '',
+  '// Luno, read-only: the key is kept here like the Gemini key, checked once, and only ever used to read balances',
+  'function lunoHeaders(id, secret) { return {Authorization: \'Basic \' + Utilities.base64Encode(id + \':\' + secret)}; }',
+  'function setLuno(p) {',
+  "  var id = String(p.id || '').trim(), secret = String(p.secret || '').trim(), props = PropertiesService.getScriptProperties();",
+  "  if (!id) { props.deleteProperty('luno_id'); props.deleteProperty('luno_secret'); return {ok: true, luno: false}; }",
+  "  var r = UrlFetchApp.fetch('https://api.luno.com/api/1/balance', {headers: lunoHeaders(id, secret), muteHttpExceptions: true});",
+  "  if (r.getResponseCode() !== 200) return {ok: false, error: 'luno', detail: r.getContentText().slice(0, 200)};",
+  "  props.setProperty('luno_id', id); props.setProperty('luno_secret', secret); return {ok: true, luno: true};",
+  '}',
+  'function lunoBalances() {',
+  "  var props = PropertiesService.getScriptProperties(), id = props.getProperty('luno_id'), secret = props.getProperty('luno_secret');",
+  "  if (!id || !secret) return {ok: false, error: 'no-luno'};",
+  "  var b = UrlFetchApp.fetch('https://api.luno.com/api/1/balance', {headers: lunoHeaders(id, secret), muteHttpExceptions: true});",
+  "  if (b.getResponseCode() !== 200) return {ok: false, error: 'luno', detail: b.getContentText().slice(0, 200)};",
+  "  var t = UrlFetchApp.fetch('https://api.luno.com/api/1/tickers', {muteHttpExceptions: true});",
+  '  return {ok: true, balance: JSON.parse(b.getContentText()).balance || [], tickers: t.getResponseCode() === 200 ? JSON.parse(t.getContentText()).tickers || [] : []};',
   '}',
   '',
   '// The key goes in a header, as Google documents (newer "AQ." keys need that); the app says which models to try',
@@ -6365,6 +6569,7 @@ function init(){
   checkRecap();
   checkPromises();
   duckCheck(false);
+  lunoRefresh(false);
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     // updateViaCache 'none': always ask GitHub for a new sw.js, so a new version is noticed straight away
     var hadWorker = !!navigator.serviceWorker.controller;
@@ -6383,6 +6588,7 @@ function init(){
     if (document.visibilityState !== 'visible') return;
     if (todayStr() !== lastDay) { lastDay = todayStr(); if (!ui.sheet) softRender(); checkRecap(); }
     if (state.household && (Relay.ready() || (device.driveFileId && Drive.tokenValid()))) runSync(false);
+    lunoRefresh(false);
   });
   window.addEventListener('online', function(){ if (Relay.ready() || device.dirty) runSync(false); });
   // with automatic sync, pick up the other phone's entries while the app stays open
