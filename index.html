@@ -354,10 +354,10 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261104164003' // set by tools/build.py
+  BUILD: '20261105205743' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
-var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest'];
+var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest','markets'];
 var TIERS = [
   {name:'Bronze', min:0, emoji:'🥉'},
   {name:'Silver', min:400, emoji:'🥈'},
@@ -452,7 +452,7 @@ function defaultCatName(name){ return name.replace('%m1%', (member('m1') || {nam
 function baseGroups(h){ return (h && h.groups) || LEGACY_GROUPS; }
 
 function blankState(){
-  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[], invest:[]};
+  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[], invest:[], markets:[]};
 }
 function defaultDevice(){
   return {memberId:null, clientId:'', autoSync:null, driveFileId:null, token:null, tokenExp:0, lastSync:0, syncError:'',
@@ -1895,7 +1895,7 @@ function viewWealth(){
       '</div>';
   });
   html += '</div>';
-  html += accountsCard() + investCard();
+  html += accountsCard() + investCard() + marketsCard();
   // net worth
   html += '<div class="card"><div class="row between"><h2>Net worth</h2><button class="btn ghost sm" data-act="editNW">Update</button></div>';
   if (!nw.length) html += '<div class="empty"><span class="e">📈</span>What you own minus what you owe. Update it once a month and watch the line climb.<br><button class="btn primary mt" data-act="editNW">Add first snapshot</button></div>';
@@ -5953,6 +5953,202 @@ function lunoRefresh(force){
 }
 ACTIONS.lunoRefreshNow = function(){ lunoRefresh(true); };
 
+/* ===== Nestegg — markets: prices of the broad market, for information only ===== */
+// The owner asked to show prices of basic things (the JSE All Share, ETFs, a bond index, some crypto) as well as the platforms.
+// Prices only, never advice: the starting list is the broad market, the household adds anything else, and nothing is ranked or picked.
+// A market ('markets', synced): {id, kind:'google'|'luno'|'hand', code, name, note, values:[{d, v}]}. Shares and ETFs come from Google
+// Finance through the sync script (script v7 keeps a small sheet with GOOGLEFINANCE formulas; quotes are up to 20 minutes late), crypto
+// from Luno's public prices (also through the script, since Luno doesn't let browsers ask directly), and unit trusts are typed by hand
+// because there's no free price feed for them. Google doesn't let scripts read its past prices, so Nestegg keeps a price a day itself.
+// The latest quote (today's change, 52-week range) is kept per phone in device.mkt; only the daily price syncs.
+var MARKET_DEFAULTS = [
+  {id:'mk-jse', kind:'google', code:'JSE:STXCAP', name:'The whole JSE', note:'Satrix Capped All Share ETF, which follows the JSE\'s Capped All Share index'},
+  {id:'mk-bonds', kind:'google', code:'JSE:STXGOV', name:'SA government bonds', note:'Satrix SA Bond ETF, which follows SA government bonds'},
+  {id:'mk-btc', kind:'luno', code:'XBT', name:'Bitcoin', note:'Luno\'s price in rand'},
+  {id:'mk-eth', kind:'luno', code:'ETH', name:'Ether', note:'Luno\'s price in rand'}];
+var MARKET_KINDS = [['google', '📈', 'Share or ETF'], ['luno', '🪙', 'Crypto on Luno'], ['hand', '🏛️', 'Unit trust (you type the price)']];
+var MARKET_EXCH = ['JSE', 'NASDAQ', 'NYSE', 'NYSEARCA', 'NYSEAMERICAN', 'LON', 'ETR', 'EPA', 'AMS', 'SWX', 'TSE', 'TYO', 'HKG', 'ASX', 'TSX', 'BOM', 'NSE', 'CURRENCY', 'INDEXSP', 'INDEXDJX', 'INDEXNASDAQ', 'INDEXFTSE'];
+var MARKETS_MAX = 20;
+
+// The starting list goes in with updatedAt 1, so anything the household changed or removed (on any phone) wins over it in a sync
+function marketsList(){
+  if (state.household && !state.markets.length) MARKET_DEFAULTS.forEach(function(d, i){ state.markets.push(Object.assign({values:[], createdAt:i + 1, updatedAt:1}, d)); });
+  return live('markets').sort(function(a, b){ return (a.createdAt || 0) - (b.createdAt || 0); });
+}
+function marketIcon(m){ return (MARKET_KINDS.filter(function(k){ return k[0] === m.kind; })[0] || MARKET_KINDS[0])[1]; }
+// Google Finance's pages show STX40:JSE; its formula wants JSE:STX40. A JSE code on its own works too.
+function marketCode(s){
+  s = String(s || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (/^[A-Z0-9]{2,10}$/.test(s)) return 'JSE:' + s;
+  var m = /^([A-Z0-9.\-]{1,12}):([A-Z0-9.\-]{1,12})$/.exec(s); if (!m) return '';
+  return MARKET_EXCH.indexOf(m[1]) < 0 && MARKET_EXCH.indexOf(m[2]) >= 0 ? m[2] + ':' + m[1] : s;
+}
+function marketCoin(s){ s = String(s || '').trim().toUpperCase(); s = s === 'BTC' ? 'XBT' : s; return /^[A-Z0-9]{2,10}$/.test(s) ? s : ''; }
+function marketPage(m){ var c = m.code.split(':'); return m.kind === 'google' && c.length === 2 ? 'https://www.google.com/finance/quote/' + encodeURIComponent(c[1]) + ':' + encodeURIComponent(c[0]) : ''; }
+function marketPairs(m){ return m.kind === 'luno' ? [m.code + 'ZAR', m.code + 'XBT', 'XBTZAR'] : []; }
+// One script answer → this market's price. JSE prices come in cents (ZAC) and London's in pence (GBX).
+function marketQuote(m, j){
+  if (m.kind === 'luno') {
+    var px = j.luno || {}, p = px[m.code + 'ZAR'] || (px[m.code + 'XBT'] && px.XBTZAR ? px[m.code + 'XBT'] * px.XBTZAR : 0);
+    return p > 0 ? {price:p, cur:'ZAR', at:now()} : null;
+  }
+  var q = (j.quotes || {})[m.code]; if (!q || q.error || !(+q.price > 0)) return null;
+  var div = q.cur === 'ZAC' || q.cur === 'GBX' ? 100 : 1, cur = q.cur === 'ZAC' ? 'ZAR' : q.cur === 'GBX' ? 'GBP' : (q.cur || 'ZAR');
+  return {price:q.price / div, cur:cur, name:q.name || '', pct:q.pct, hi:q.hi != null ? q.hi / div : null, lo:q.lo != null ? q.lo / div : null, at:now()};
+}
+function fmtPrice(n, cur){
+  if (n == null) return '—';
+  if (cur && cur !== 'ZAR') return esc(cur) + ' ' + (+n).toFixed(2);
+  return n >= 1000 ? fmtR(n) : fmtR(n, true);
+}
+function fmtPct(p){ return p == null ? '—' : '<span class="' + (p >= 0 ? 'pos' : 'neg') + '">' + (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(1) + '%</span>'; }
+// A price a day; a later one the same day replaces it. About 13 months, so a year's change is always there.
+function marketAddValue(vals, d, v){ return (vals || []).filter(function(x){ return x.d !== d; }).concat([{d:d, v:+(+v).toPrecision(8)}]).sort(function(a, b){ return a.d < b.d ? -1 : 1; }).slice(-400); }
+
+// The price now, and how it moved: today (Google's figure), over a month and a year (from the prices kept)
+function marketStats(m){
+  var vals = (m.values || []).slice().sort(function(a, b){ return a.d < b.d ? -1 : 1; }), last = vals[vals.length - 1], q = (device.mkt || {})[m.id] || {};
+  var price = m.kind !== 'hand' && q.price != null ? q.price : last ? +last.v : null, cur = m.kind !== 'hand' && q.cur ? q.cur : 'ZAR';
+  function back(days){
+    var t = addDays(todayStr(), -days), lo = addDays(t, -10), r = null;
+    vals.forEach(function(x){ if (x.d <= t && x.d >= lo) r = x; });
+    return r && price != null && +r.v > 0 ? (price / +r.v - 1) * 100 : null;
+  }
+  var first = vals[0], since = null;
+  if (first && first.d < todayStr() && price != null && +first.v > 0) since = {d:first.d, pct:(price / +first.v - 1) * 100};
+  return {price:price, cur:cur, day:m.kind === 'google' ? (q.pct != null ? +q.pct : null) : null, month:back(30), year:back(365), since:since, hi:q.hi, lo:q.lo, vals:vals, at:q.at || null, failed:!!q.error};
+}
+function marketMoves(s){
+  var out = [];
+  if (s.day != null) out.push('Today ' + fmtPct(s.day));
+  if (s.month != null) out.push('1 month ' + fmtPct(s.month));
+  if (s.year != null) out.push('1 year ' + fmtPct(s.year));
+  if (s.month == null && s.since) out.push('Since ' + esc(fmtDate(s.since.d)) + ' ' + fmtPct(s.since.pct));
+  return out.join(' · ');
+}
+
+/* ---------- on the Wealth tab ---------- */
+function marketsReady(){ return Relay.ready() && +device.relayVersion >= MARKETS_SCRIPT; }
+function marketsCard(){
+  var list = marketsList(), ready = marketsReady();
+  if (ready && (!device.mktAt || now() - device.mktAt > 4 * 3600 * 1000)) setTimeout(function(){ marketsRefresh(false); }, 50);
+  var html = '<div class="card span2" id="markets"><div class="row between"><h2 style="margin:0">🌍 Markets</h2><button class="btn sm" data-act="marketAdd">+ Follow</button></div>';
+  if (!Relay.ready()) html += '<p class="small muted">Prices come through your automatic sync. Set it up in ⚙️ Settings → Sync.</p>';
+  else if (!ready) html += '<div class="nudge gold mt" data-act="openRelayUpdate"><div class="e">⬆️</div><div><div class="t">Prices need a quick update to your sync script</div><div class="small muted">Version ' + MARKETS_SCRIPT + ', about 3 minutes on the computer. It also brings the Luno connection.</div></div></div>';
+  html += list.map(function(m){
+    var s = marketStats(m), moves = marketMoves(s);
+    return '<div class="li tap" data-act="marketOpen" data-id="' + esc(m.id) + '" id="market-' + esc(m.id) + '"><div class="ico">' + marketIcon(m) + '</div><div class="main"><div class="t">' + esc(m.name) + '</div>' +
+      '<div class="s" style="white-space:normal">' + (moves || (s.failed ? 'No price came back' : m.kind === 'hand' ? (s.vals.length ? 'Price you typed on ' + esc(fmtDate(s.vals[s.vals.length - 1].d)) : 'Type its price to follow it') : ready ? 'A price a day is kept from today' : esc(m.note || ''))) + '</div></div><span class="amt">' + fmtPrice(s.price, s.cur) + '</span></div>';
+  }).join('');
+  if (!list.length) html += '<p class="small muted">Nothing followed. Tap + Follow to add a share, ETF, coin or unit trust.</p>';
+  return html + (ready ? '<div class="row between mt"><span class="tiny muted">' + (device.mktAt ? 'Updated ' + esc(fmtTimeOfDay(device.mktAt)) : 'Not read yet') + '</span><button class="btn sm" data-act="marketsRefreshNow">↻ Refresh</button></div>' : '') +
+    '<p class="tiny muted mt" style="margin-bottom:0">For information only: shares and ETFs from Google Finance (up to 20 minutes late), crypto from Luno. The starting list is the broad market; Nestegg doesn\'t recommend, rank or pick investments, and past prices don\'t say what comes next.</p></div>';
+}
+function fmtTimeOfDay(t){ var d = new Date(t), hm = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); return d2s(d) === todayStr() ? hm : fmtDate(d2s(d)) + ', ' + hm; }
+
+// At most every few hours (on opening, coming back, or opening Wealth), or when asked. Only a changed price is written, so the
+// phones don't keep syncing the same numbers.
+var marketsBusy = false, marketsTried = 0;
+function marketsRefresh(force){
+  if (!state.household || marketsBusy || !marketsReady()) return;
+  var list = marketsList().filter(function(m){ return m.kind !== 'hand'; });
+  if (!list.length) return;
+  if (!force && device.mktAt && now() - device.mktAt < 4 * 3600 * 1000) return;
+  if (!force && now() - marketsTried < 10 * 60 * 1000) return; // after a failed try, wait before asking again on its own
+  marketsTried = now();
+  var codes = [], pairs = [];
+  list.forEach(function(m){ if (m.kind === 'google' && codes.indexOf(m.code) < 0) codes.push(m.code); marketPairs(m).forEach(function(p){ if (pairs.indexOf(p) < 0) pairs.push(p); }); });
+  marketsBusy = true;
+  Relay.call({action:'markets', codes:codes, luno:pairs}).then(function(j){
+    marketsBusy = false;
+    if (!j.ok) { if (force) toast('Prices: ' + String(j.detail || j.error).slice(0, 100)); return; }
+    var q = device.mkt || {}, changed = false, today = todayStr();
+    list.forEach(function(m){
+      var x = marketQuote(m, j); if (!x) { q[m.id] = {error:true, at:now()}; return; }
+      q[m.id] = x;
+      var had = (m.values || []).filter(function(v){ return v.d === today; })[0];
+      if (!had || Math.abs(+had.v - x.price) > 1e-9) { var r = Object.assign({}, m); r.values = marketAddValue(m.values, today, x.price); upsert('markets', r); changed = true; }
+    });
+    device.mkt = q; device.mktAt = now(); saveDevice();
+    if (changed) saveState();
+    softRender(); if (ui.sheet && ui.sheet.type === 'market') renderSheet();
+    if (force) toast('Prices updated');
+  }).catch(function(e){ marketsBusy = false; if (force) toast(e.message || String(e)); });
+}
+ACTIONS.marketsRefreshNow = function(){ marketsRefresh(true); };
+
+/* ---------- one market ---------- */
+ACTIONS.marketOpen = function(el){ openSheet('market', {id:el.getAttribute('data-id')}); };
+SHEETS.market = function(sh){
+  var m = byId('markets', sh.id); if (!m || m.deleted) return '<p class="small muted">Nothing here any more.</p>';
+  var s = marketStats(m), page = marketPage(m);
+  return '<h2>' + marketIcon(m) + ' ' + esc(m.name) + '</h2>' + (m.note ? '<p class="small muted" style="margin-top:-4px">' + esc(m.note) + '</p>' : '') +
+    '<div class="big-num" id="market-price">' + fmtPrice(s.price, s.cur) + '</div>' +
+    (s.at ? '<p class="tiny muted" style="margin:2px 0 0">' + (m.kind === 'luno' ? 'Last trade on Luno' : 'Google Finance, up to 20 minutes late') + ', read ' + esc(fmtTimeOfDay(s.at)) + '.</p>' : '') +
+    '<div class="kpis mt"><div class="kpi"><div class="l">Today</div><div class="v" style="font-size:15px">' + fmtPct(s.day) + '</div></div><div class="kpi"><div class="l">1 month</div><div class="v" style="font-size:15px">' + fmtPct(s.month) + '</div></div><div class="kpi"><div class="l">1 year</div><div class="v" style="font-size:15px">' + fmtPct(s.year) + '</div></div></div>' +
+    (s.hi != null && s.lo != null ? '<p class="small mt" style="margin-bottom:0">Past 52 weeks: ' + fmtPrice(s.lo, s.cur) + ' to ' + fmtPrice(s.hi, s.cur) + '</p>' : '') +
+    investSpark(s.vals) +
+    (s.vals.length ? '<p class="tiny muted" style="margin:4px 0 0">Nestegg has kept a price a day since ' + esc(fmtDate(s.vals[0].d, true)) + '. Changes over a month and a year show once there\'s that much.</p>' : '') +
+    (m.kind === 'hand' ? '<div class="small strong mt">Its price today</div><div class="row" style="gap:8px"><input class="input" id="f-mkprice" inputmode="decimal" placeholder="R" style="flex:1;min-width:0"><button class="btn" data-act="marketValue">Update</button></div><p class="tiny muted" style="margin:4px 0 0">From the fund\'s fact sheet or website.</p>' : '') +
+    (page ? '<a class="btn block mt" id="market-page" href="' + esc(page) + '" target="_blank" rel="noopener">See it on Google Finance</a>' : '') +
+    '<div class="btns"><button class="btn danger" data-act="marketDelete">Stop following</button><button class="btn" data-act="closeSheet">Done</button></div>';
+};
+ACTIONS.marketValue = function(){
+  var m = Object.assign({}, byId('markets', ui.sheet.id)), v = parseAmount($('#f-mkprice').value);
+  if (!(v > 0)) { toast('What\'s its price today?'); return; }
+  m.values = marketAddValue(m.values, todayStr(), v); upsert('markets', m); saveState(); renderSheet(); render(true);
+};
+ACTIONS.marketDelete = function(){ removeItem('markets', ui.sheet.id); saveState(); closeSheet(); render(true); };
+
+/* ---------- following another ---------- */
+ACTIONS.marketAdd = function(){
+  if (marketsList().length >= MARKETS_MAX) { toast('That\'s ' + MARKETS_MAX + ' already: stop following one first'); return; }
+  openSheet('marketAdd', {kind:'google', code:'', name:'', price:''});
+};
+SHEETS.marketAdd = function(sh){
+  var k = sh.kind, ready = marketsReady();
+  return '<h2>🌍 Follow a price</h2><div class="chips">' + MARKET_KINDS.map(function(x){ return '<button class="chip' + (k === x[0] ? ' on' : '') + '" data-act="marketKind" data-id="' + x[0] + '">' + x[1] + ' ' + esc(x[2]) + '</button>'; }).join('') + '</div>' +
+    (k === 'google' ? '<label class="field mt"><span>Its code</span><input class="input" id="f-mkcode" data-input="mkCode" autocapitalize="characters" spellcheck="false" placeholder="STX40 or STX40:JSE" value="' + esc(sh.code) + '"></label>' +
+        '<p class="tiny muted" style="margin-top:-4px">Search the name on <a href="https://www.google.com/finance/" target="_blank" rel="noopener">Google Finance</a> and copy the code under it, like STX40:JSE. A JSE code on its own works too.</p>' +
+        '<label class="field"><span>Name (optional: Google\'s name if empty)</span><input class="input" id="f-mkname" data-input="mkName" maxlength="40" value="' + esc(sh.name) + '"></label>'
+      : k === 'luno' ? '<label class="field mt"><span>The coin\'s code on Luno</span><input class="input" id="f-mkcode" data-input="mkCode" autocapitalize="characters" spellcheck="false" placeholder="SOL" value="' + esc(sh.code) + '"></label>' +
+        '<label class="field"><span>Name (optional)</span><input class="input" id="f-mkname" data-input="mkName" maxlength="40" value="' + esc(sh.name) + '"></label>'
+      : '<label class="field mt"><span>Fund name</span><input class="input" id="f-mkname" data-input="mkName" maxlength="40" value="' + esc(sh.name) + '"></label>' +
+        '<label class="field"><span>Its price today (optional)</span><input class="input" id="f-mkprice" data-input="mkPrice" inputmode="decimal" placeholder="R" value="' + esc(sh.price) + '"></label>' +
+        '<p class="tiny muted" style="margin-top:-4px">Unit trusts have no free price feed, so you type the price from the fund\'s fact sheet or website when you want to.</p>') +
+    (k !== 'hand' && !ready ? '<p class="tiny muted">Prices show once your sync script is on version ' + MARKETS_SCRIPT + '.</p>' : '') +
+    (sh.error ? '<p class="small neg" id="market-error">' + esc(sh.error) + '</p>' : '') + (sh.busy ? '<p class="small"><span class="spinner"></span> Checking the price…</p>' : '') +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="marketSave"' + (sh.busy ? ' disabled' : '') + '>Follow</button></div>';
+};
+ACTIONS.marketKind = function(el){ ui.sheet.kind = el.getAttribute('data-id'); ui.sheet.error = ''; renderSheet(); };
+INPUTS.mkCode = function(el){ ui.sheet.code = el.value; };
+INPUTS.mkName = function(el){ ui.sheet.name = el.value; };
+INPUTS.mkPrice = function(el){ ui.sheet.price = el.value; };
+ACTIONS.marketSave = function(){
+  var sh = ui.sheet, k = sh.kind, name = String(sh.name || '').trim().slice(0, 40), code = '';
+  if (k === 'google') { code = marketCode(sh.code); if (!code) { sh.error = 'That doesn\'t look like a code. Try one like STX40 or STX40:JSE.'; renderSheet(); return; } }
+  if (k === 'luno') { code = marketCoin(sh.code); if (!code) { sh.error = 'Type the coin\'s short code, like SOL.'; renderSheet(); return; } if (!name) name = code === 'XBT' ? 'Bitcoin' : code; }
+  if (k === 'hand' && !name) { sh.error = 'What\'s the fund called?'; renderSheet(); return; }
+  if (k !== 'hand' && live('markets').some(function(m){ return m.kind === k && m.code === code; })) { sh.error = 'You already follow that one.'; renderSheet(); return; }
+  var m = {id:'mk-' + uid(), kind:k, code:code, name:name, note:k === 'luno' ? 'Luno\'s price in rand' : '', values:[], createdAt:now()};
+  function save(x){
+    if (x) { m.values = marketAddValue([], todayStr(), x.price); device.mkt = device.mkt || {}; device.mkt[m.id] = x; saveDevice(); }
+    if (k === 'hand') { var p = parseAmount(sh.price); if (p > 0) m.values = marketAddValue([], todayStr(), p); }
+    if (!m.name) m.name = String(x && x.name || code.split(':')[1] || code).slice(0, 40);
+    upsert('markets', m); saveState(); closeSheet(); render(true); toast('Following ' + m.name);
+  }
+  if (k === 'hand' || !marketsReady()) { save(null); return; }
+  // Check there's a price before following, so a typo doesn't sit on the list showing nothing
+  sh.busy = true; sh.error = ''; renderSheet();
+  Relay.call({action:'markets', codes:k === 'google' ? [code] : [], luno:marketPairs(m)}).then(function(j){
+    if (ui.sheet !== sh) return;
+    sh.busy = false;
+    var x = j.ok ? marketQuote(m, j) : null;
+    if (!x) { sh.error = k === 'google' ? 'Google Finance has no price for ' + code + '. Check the code on Google Finance.' : 'Luno has no rand price for ' + code + '.'; renderSheet(); return; }
+    save(x);
+  }).catch(function(e){ if (ui.sheet === sh) { sh.busy = false; sh.error = e.message || String(e); renderSheet(); } });
+};
+
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
@@ -6019,7 +6215,7 @@ var Drive = {
 // deploys this script (free) once; it keeps the data file in their Drive and serves it to devices that know the key.
 // No device signs in to Google again. `rev` goes up with every save, and a save based on an old rev is refused,
 // so a device that missed something merges first and tries again — nobody's changes get overwritten.
-var SCRIPT_VERSION = 6, AI_SCRIPT = 4, SEARCH_SCRIPT = 5, LUNO_SCRIPT = 6; // the newest RELAY_SCRIPT (keep in step with its VERSION line), and the oldest each feature needs, so a new version only asks for an update where it's needed
+var SCRIPT_VERSION = 7, AI_SCRIPT = 4, SEARCH_SCRIPT = 5, LUNO_SCRIPT = 6, MARKETS_SCRIPT = 7; // the newest RELAY_SCRIPT (keep in step with its VERSION line), and the oldest each feature needs, so a new version only asks for an update where it's needed
 var SEARCH_MODELS = ['gemini-2.5-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']; // tried in turn by the script, so this can change without a redeploy. Keys made after mid-2026 can't use gemini-2.5-flash
 // Gemini models to try, newest first; sent with each request so a renamed model only needs an app update
 var AI_MODELS = ['gemini-flash-latest', 'gemini-3.8-flash', 'gemini-2.5-flash'];
@@ -6027,7 +6223,7 @@ var RELAY_SCRIPT = [
   '// Nestegg sync. Runs in your own Google account, free. Paste ALL of this into a new Apps Script project.',
   "var KEY = '%KEY%';",
   "var FILE = 'nestegg-household-data.json';",
-  'var VERSION = 6;',
+  'var VERSION = 7;',
   '',
   'function doGet(e) { return reply({ok: true, nestegg: true, version: VERSION}); }',
   'function doPost(e) { var p = {}; try { p = JSON.parse(e.postData.contents); } catch (x) {} var out = handle(p); out.version = VERSION; return reply(out); }',
@@ -6040,6 +6236,7 @@ var RELAY_SCRIPT = [
   "  if (p.action === 'search') return searchWeb(p);",
   "  if (p.action === 'setLuno') return setLuno(p);",
   "  if (p.action === 'luno') return lunoBalances();",
+  "  if (p.action === 'markets') return markets(p);",
   '  var lock = LockService.getScriptLock(); lock.waitLock(20000);',
   '  try {',
   "    var props = PropertiesService.getScriptProperties(), rev = Number(props.getProperty('rev') || 0), file = dataFile(props);",
@@ -6115,6 +6312,39 @@ var RELAY_SCRIPT = [
   "  var t = UrlFetchApp.fetch('https://api.luno.com/api/1/tickers', {muteHttpExceptions: true});",
   '  return {ok: true, balance: JSON.parse(b.getContentText()).balance || [], tickers: t.getResponseCode() === 200 ? JSON.parse(t.getContentText()).tickers || [] : []};',
   '}',
+  "",
+  "// Market prices, for information only: Google Finance quotes (delayed up to 20 minutes) through a small sheet kept in this Drive,",
+  "// and Luno's public crypto prices (no key). Google doesn't let scripts read its past prices, so the app keeps its own daily readings.",
+  "function markets(p) {",
+  "  var codes = (p.codes || []).map(String).filter(function (c) { return /^[A-Za-z0-9.\\-]{1,12}:[A-Za-z0-9.\\-]{1,12}$/.test(c); }).slice(0, 20), quotes = {}, luno = {};",
+  "  if (codes.length) {",
+  "    var lock = LockService.getScriptLock(); lock.waitLock(20000);",
+  "    try {",
+  "      var sh = marketSheet(), n = codes.length, f = [], v = [];",
+  "      for (var i = 1; i <= n; i++) f.push(['price', 'currency', 'name', 'changepct', 'high52', 'low52'].map(function (a) { return '=GOOGLEFINANCE(A' + i + ',\"' + a + '\")'; }));",
+  "      sh.clearContents();",
+  "      sh.getRange(1, 1, n, 1).setValues(codes.map(function (c) { return [c]; }));",
+  "      sh.getRange(1, 2, n, 6).setFormulas(f);",
+  "      for (var k = 0; k < 10; k++) { SpreadsheetApp.flush(); v = sh.getRange(1, 2, n, 6).getValues(); if (!/Loading/.test(JSON.stringify(v))) break; Utilities.sleep(1000); }",
+  "      codes.forEach(function (c, i) {",
+  "        var x = v[i] || [], num = function (y) { return typeof y === 'number' ? y : null; };",
+  "        quotes[c] = typeof x[0] === 'number' ? {price: x[0], cur: String(x[1] || ''), name: String(x[2] || ''), pct: num(x[3]), hi: num(x[4]), lo: num(x[5])} : {error: String(x[0] || 'no-price').slice(0, 60)};",
+  "      });",
+  "    } finally { lock.releaseLock(); }",
+  "  }",
+  "  var pairs = (p.luno || []).map(String).filter(function (x) { return /^[A-Z0-9]{2,12}$/.test(x); });",
+  "  if (pairs.length) {",
+  "    var t = UrlFetchApp.fetch('https://api.luno.com/api/1/tickers', {muteHttpExceptions: true});",
+  "    if (t.getResponseCode() === 200) (JSON.parse(t.getContentText()).tickers || []).forEach(function (x) { if (pairs.indexOf(x.pair) >= 0) luno[x.pair] = Number(x.last_trade) || 0; });",
+  "  }",
+  "  return {ok: true, quotes: quotes, luno: luno};",
+  "}",
+  "function marketSheet() {",
+  "  var props = PropertiesService.getScriptProperties(), id = props.getProperty('market_sheet');",
+  "  if (id) { try { return SpreadsheetApp.openById(id).getSheets()[0]; } catch (x) {} }",
+  "  var ss = SpreadsheetApp.create('Nestegg market prices'); props.setProperty('market_sheet', ss.getId());",
+  "  return ss.getSheets()[0];",
+  "}",
   '',
   '// The key goes in a header, as Google documents (newer "AQ." keys need that); the app says which models to try',
   'function askGemini(k, parts, models) {',
@@ -6571,6 +6801,7 @@ function init(){
   checkPromises();
   duckCheck(false);
   lunoRefresh(false);
+  marketsRefresh(false);
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     // updateViaCache 'none': always ask GitHub for a new sw.js, so a new version is noticed straight away
     var hadWorker = !!navigator.serviceWorker.controller;
@@ -6590,6 +6821,7 @@ function init(){
     if (todayStr() !== lastDay) { lastDay = todayStr(); if (!ui.sheet) softRender(); checkRecap(); }
     if (state.household && (Relay.ready() || (device.driveFileId && Drive.tokenValid()))) runSync(false);
     lunoRefresh(false);
+    marketsRefresh(false);
   });
   window.addEventListener('online', function(){ if (Relay.ready() || device.dirty) runSync(false); });
   // with automatic sync, pick up the other phone's entries while the app stays open
