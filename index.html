@@ -354,10 +354,10 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261105205743' // set by tools/build.py
+  BUILD: '20261106125508' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
-var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest','markets'];
+var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest','markets','debts'];
 var TIERS = [
   {name:'Bronze', min:0, emoji:'🥉'},
   {name:'Silver', min:400, emoji:'🥈'},
@@ -452,7 +452,7 @@ function defaultCatName(name){ return name.replace('%m1%', (member('m1') || {nam
 function baseGroups(h){ return (h && h.groups) || LEGACY_GROUPS; }
 
 function blankState(){
-  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[], invest:[], markets:[]};
+  return {v:1, household:null, categories:[], tx:[], goals:[], netWorth:[], checkins:[], moneyDates:[], rules:[], itemRules:[], accounts:[], recons:[], trips:[], promises:[], invest:[], markets:[], debts:[]};
 }
 function defaultDevice(){
   return {memberId:null, clientId:'', autoSync:null, driveFileId:null, token:null, tokenExp:0, lastSync:0, syncError:'',
@@ -1447,7 +1447,7 @@ function viewHome(){
       s.leftToSpend >= 0 ? 'About <b style="color:#fff">' + fmtR(perDay) + ' a day</b> for the next ' + s.daysLeft + ' days. Spent ' + fmtR(s.spent) + ' of ' + fmtR(s.budgeted) + '.'
       : 'Over by ' + fmtR(-s.leftToSpend) + '. No stress — pick one category to trim and get back on track.') + '</div>' +
     '<div class="kpis mt"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) +
-    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div>' + inHandRow(p) + '</div>';
+    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div>' + inHandRow(p) + '</div>' + askHomeCard();
   // check-in
   html += '<div class="card"><div class="row between"><h2>Daily check-in</h2>' + (mine.today ? '<span class="pill green">✓ Done today</span>' : '<span class="pill gold">Not yet today</span>') + '</div>' + duckCard() +
     '<div class="streaks"><div class="streak ' + (mine.today?'done':'') + '"><div class="n">🔥 ' + mine.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">' + (mine.freezes ? '🧊×' + mine.freezes : '&nbsp;') + '</div></div>' +
@@ -1575,6 +1575,8 @@ function viewBudget(){
     (s.incomeBase === 0 ? 'Tap + Add next to Income.' : lta > 0 ? 'Add it to a category or your savings target.' : lta < 0 ? 'Your plan is bigger than your income — trim something.' : 'Your plan balances. Beautiful.') + '</div></div></div></div>';
   html += '<div class="card"><h2>Tools</h2><div class="list">' +
     '<div class="li tap" data-act="view" data-id="smart"><div class="ico">🧠</div><div class="main"><div class="t">Smart budget</div><div class="s">The most you can save, from what you really buy</div></div></div>' +
+    '<div class="li tap" data-act="holidayNew"><div class="ico">✈️</div><div class="main"><div class="t">Plan a trip</div><div class="s">What it costs, what you can afford, and what if</div></div></div>' +
+    '<div class="li tap" data-act="view" data-id="calendar"><div class="ico">📅</div><div class="main"><div class="t">Money calendar</div><div class="s">What comes in and goes out, day by day</div></div></div>' +
     '<div class="li tap" data-act="view" data-id="trips"><div class="ico">🎒</div><div class="main"><div class="t">Mini budgets</div><div class="s">Swipe through a shop or a night out before you go</div></div></div>' +
     '<div class="li tap" data-act="suggestIncome"><div class="ico">✨</div><div class="main"><div class="t">Suggest from our income</div><div class="s">Splits your income by typical SA percentages</div></div></div>' +
     '<div class="li tap" data-act="suggestBudget"><div class="ico">📈</div><div class="main"><div class="t">Suggest from our history</div><div class="s">Uses your real spending from past months</div></div></div>' +
@@ -1583,6 +1585,8 @@ function viewBudget(){
     '<div class="li tap" data-act="editGroups"><div class="ico">🗂️</div><div class="main"><div class="t">Groups</div><div class="s">Your own headings, like Faith or School fees</div></div></div>' +
     '<div class="li tap" data-act="editMonthDates"><div class="ico">📅</div><div class="main"><div class="t">' + esc(periodName(p)) + ' dates</div><div class="s">' + esc(periodRange(p)) + ' · move them to match payday</div></div></div>' +
     '<div class="li tap" data-act="view" data-id="activity"><div class="ico">🧾</div><div class="main"><div class="t">All transactions</div><div class="s">Search, edit or delete</div></div></div></div></div>';
+  html += pictureCard(p);
+  if (p === currentPeriod()) html += standsCard();
   var byGroup = {};
   liveCats().forEach(function(c){ var g = catGroup(c); (byGroup[g] = byGroup[g] || []).push(c); });
   groupsList().forEach(function(g){
@@ -1895,7 +1899,7 @@ function viewWealth(){
       '</div>';
   });
   html += '</div>';
-  html += accountsCard() + investCard() + marketsCard();
+  html += accountsCard() + debtsCard() + investCard() + marketsCard();
   // net worth
   html += '<div class="card"><div class="row between"><h2>Net worth</h2><button class="btn ghost sm" data-act="editNW">Update</button></div>';
   if (!nw.length) html += '<div class="empty"><span class="e">📈</span>What you own minus what you owe. Update it once a month and watch the line climb.<br><button class="btn primary mt" data-act="editNW">Add first snapshot</button></div>';
@@ -1933,6 +1937,7 @@ SHEETS.goal = function(sh){
     '<label class="field"><span>Target amount (R)</span><input class="input" id="f-gt" inputmode="decimal" value="' + (g ? g.target : '') + '"></label>' +
     '<label class="field"><span>Reach it by (optional)</span><input class="input" type="date" id="f-gd" value="' + (g && g.targetDate ? g.targetDate : '') + '"></label>' +
     '<p class="small muted">With a date, Nestegg works out how much to put away each month.</p>' +
+    (g && g.trip ? '<button class="btn block" data-act="holidayOpen" data-id="' + esc(g.id) + '">✈️ Open the trip plan</button>' : '') +
     '<div class="btns"><button class="btn primary" data-act="saveGoal">Save goal</button>' + (g ? '<button class="btn danger" data-act="deleteGoal">Delete</button>' : '') + '</div>';
 };
 ACTIONS.goalIdea = function(el){ $('#f-ge').value = el.getAttribute('data-e'); $('#f-gn').value = el.getAttribute('data-n'); $('#f-gt').focus(); };
@@ -5276,6 +5281,8 @@ function voiceCommand(text){
   if (c.kind === 'spent') { var v = c.line ? s.byCat[c.line.id] || 0 : s.spent; voiceSay(fmtM(v) + ' spent' + (c.line ? ' on ' + c.line.name : '') + ' this month.', voiceRand(v) + ' spent' + (c.line ? ' on ' + c.line.name : '') + ' this month'); return; }
   if (c.kind === 'open') { voiceLeave(); if (c.how === 'tab') go(c.id); else openView(c.id); return; }
   if (c.kind === 'draft') { voiceStartDraft(c.d); return; }
+  // a question about the money ("where is our money going?") gets Ask Nestegg's answer, spoken
+  if (c.kind === 'unknown' && askIntent(text)) { var ans = askAnswer(text); if (ans) { askLog().push({who:'you', text:text}, {who:'me', text:ans.text, html:ans.html, btns:ans.btns}); voiceSay(ans.say || ans.text, null, voiceListenOn); return; } }
   if (!(device.aiOn && Relay.ready())) { voiceSay('Sorry, I didn\'t get that. Try: spent R50 on bread.', null, voiceListenOn); return; }
   voiceSet('thinking');
   voiceAskAI(text).then(function(d){ if (d) voiceStartDraft(d); else voiceSay('Sorry, I didn\'t get that. Try: spent R50 on bread.', null, voiceListenOn); })
@@ -6148,6 +6155,653 @@ ACTIONS.marketSave = function(){
     save(x);
   }).catch(function(e){ if (ui.sheet === sh) { sh.busy = false; sh.error = e.message || String(e); renderSheet(); } });
 };
+
+/* ===== Nestegg — where the money goes: spending by group, and fixed against flexible ===== */
+// From the video the owner shared (Claude's personal finance): a ring of the month's spending by group, then "your fixed costs are
+// steady; the flexible side is where you have room". Fixed means the lines Smart budget treats as commitments (smartKind 'keep':
+// rent, debt, cover, school, giving, any % line or locked line), so changing a line there changes it here too.
+var PICTURE_HUES = [160, 22, 330, 210, 48, 268, 110, 0, 185, 300];
+
+// The month's spending by group, biggest first. Refunds can take a group below nothing; the ring only draws what's above it.
+function spendGroups(p){
+  return memo('sg:' + p, function(){
+    var s = periodSummary(p), by = {}, names = {};
+    groupsList().forEach(function(g, i){ names[g.id] = g; });
+    Object.keys(s.byCat).forEach(function(id){ var g = catGroup(cat(id)); by[g] = (by[g] || 0) + s.byCat[id]; });
+    var list = Object.keys(by).map(function(id, i){
+      var g = names[id] || {id:'other', name:'Other', emoji:'📦'};
+      return {id:id, name:g.name, emoji:g.emoji || '', hue:g.hue != null ? g.hue : null, amount:round2(by[id])};
+    }).filter(function(x){ return x.amount > 0; }).sort(function(a, b){ return b.amount - a.amount; });
+    var total = round2(sum(list, function(x){ return x.amount; }));
+    list.forEach(function(x, i){ x.pct = total ? x.amount / total * 100 : 0; if (x.hue == null) x.hue = PICTURE_HUES[i % PICTURE_HUES.length]; });
+    return {list:list, total:total};
+  });
+}
+function isFixed(id){ var c = byId('categories', id); return !!c && !c.deleted && smartKind(c) === 'keep'; }
+function fixedFlex(p){
+  var s = periodSummary(p), f = 0, x = 0;
+  Object.keys(s.byCat).forEach(function(id){ if (isFixed(id)) f += s.byCat[id]; else x += s.byCat[id]; });
+  return {fixed:round2(Math.max(0, f)), flex:round2(Math.max(0, x))};
+}
+// The months before this one with spending in them, up to three, to say whether fixed costs hold steady
+function fixedHistory(p){
+  var out = [], q = prevPeriodStart(p), first = startedPeriod();
+  for (var i = 0; i < 6 && out.length < 3 && q >= prevPeriodStart(first); i++) { var s = periodSummary(q); if (s.spent > 0 && s.dayIndex === s.days) out.push(fixedFlex(q)); q = prevPeriodStart(q); }
+  return out;
+}
+function pictureWords(p){
+  var now = fixedFlex(p), past = fixedHistory(p), s = periodSummary(p);
+  if (past.length < 2) return s.isCurrent ? 'So far this month: ' + fmtR(now.fixed) + ' on fixed costs and ' + fmtR(now.flex) + ' on the flexible side, which is where you have room.'
+    : fmtR(now.fixed) + ' went on fixed costs and ' + fmtR(now.flex) + ' on the flexible side, which is where you have room.';
+  var fs = past.map(function(x){ return x.fixed; }), mean = sum(fs) / fs.length, lo = Math.min.apply(null, fs), hi = Math.max.apply(null, fs);
+  var flex = Math.round(sum(past, function(x){ return x.flex; }) / past.length);
+  var steady = mean > 0 && (hi - lo) / mean <= 0.1;
+  return (steady ? 'Your fixed costs are steady, about ' + fmtR(mean) + ' a month.' : 'Your fixed costs move between ' + fmtR(lo) + ' and ' + fmtR(hi) + ' a month.') +
+    ' The flexible side, about ' + fmtR(flex) + ' a month, is where you have room.';
+}
+function pictureRing(g){
+  var r = 42, C = 2 * Math.PI * r, gap = g.list.length > 1 ? 2 : 0, at = 0;
+  var segs = g.list.map(function(x){
+    var len = Math.max(0, x.amount / g.total * C - gap), out = '<circle cx="60" cy="60" r="' + r + '" fill="none" stroke="hsl(' + x.hue + ',55%,48%)" stroke-width="13" stroke-dasharray="' + len.toFixed(2) + ' ' + C.toFixed(2) + '" stroke-dashoffset="' + (-at).toFixed(2) + '" transform="rotate(-90 60 60)"/>';
+    at += x.amount / g.total * C; return out;
+  }).join('');
+  return '<svg viewBox="0 0 120 120" style="width:150px;height:150px;flex:none" role="img" aria-label="Spending by group">' + segs +
+    '<text x="60" y="60" text-anchor="middle" font-size="15" font-weight="800" fill="currentColor">' + esc(fmtR(g.total)) + '</text><text x="60" y="75" text-anchor="middle" font-size="9" fill="currentColor" opacity=".6">spent</text></svg>';
+}
+function pictureCard(p, small){
+  var s = periodSummary(p), g = spendGroups(p), ff = fixedFlex(p);
+  var html = '<div class="card span2" id="picture"><h2>' + (s.isCurrent ? 'Where the money is going' : 'Where the money went') + ' <span class="muted small">' + esc(periodName(p)) + '</span></h2>';
+  if (!g.total) return html + '<p class="small muted">Nothing spent in ' + esc(periodName(p)) + ' yet. Once there is, this shows where it goes.</p></div>';
+  var top = g.list.slice(0, 5), rest = g.list.slice(5), restAmt = round2(sum(rest, function(x){ return x.amount; }));
+  html += '<div class="row" style="gap:14px;align-items:center;flex-wrap:wrap">' + pictureRing(g) + '<div style="flex:1;min-width:180px">' +
+    top.map(function(x){ return '<div class="row between small" style="padding:3px 0" data-group="' + esc(x.id) + '"><span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:hsl(' + x.hue + ',55%,48%);margin-right:6px"></span>' + esc(x.name) + ' <span class="muted">' + x.pct.toFixed(0) + '%</span></span><span class="strong">' + fmtR(x.amount) + '</span></div>'; }).join('') +
+    (rest.length ? '<div class="row between small" style="padding:3px 0"><span><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--line,#ccc);margin-right:6px"></span>Everything else <span class="muted">' + (restAmt / g.total * 100).toFixed(0) + '%</span></span><span class="strong">' + fmtR(restAmt) + '</span></div>' : '') +
+    '</div></div>';
+  if (small) return html + '</div>';
+  var most = Math.max(ff.fixed, ff.flex) || 1;
+  html += '<p class="small mt" id="picture-words">' + esc(pictureWords(p)) + '</p>' +
+    '<div class="row between small"><span class="strong">Fixed</span><span>' + fmtR(ff.fixed) + '</span></div>' + bar(ff.fixed, most, 'fixed') +
+    '<div class="row between small" style="margin-top:8px"><span class="strong">Flexible</span><span>' + fmtR(ff.flex) + '</span></div>' + bar(ff.flex, most, 'warn') +
+    '<p class="tiny muted mt" style="margin-bottom:0">Fixed means commitments like rent, debt, cover, school fees and giving. <button class="btn ghost sm" style="padding:2px 6px;min-height:0" data-act="view" data-id="smart">Change which lines are fixed</button></p>';
+  return html + '</div>';
+}
+
+/* ===== Nestegg — debts, and what stands out ===== */
+// From the video the owner shared: "month 35 of 36 of your car payment; from January you free up R348 a month" and "you've paid R180
+// in card interest and fees this year". A debt ('debts', synced) is one of:
+//   term     a loan with fixed payments (car, personal loan, furniture account): monthly, payments (how many), first ('YYYY-MM' budget month)
+//   balance  a card, store account or money owed to someone: balance at startDate; payments are expense entries with debtId
+//   owed     money someone owes us: balance at startDate; what came back is kept on the debt (paid:[{d, a}]), because it isn't income
+// Payment n is counted in budget months from the first, the same way goals count them, so it needs no entries to work.
+var DEBT_KINDS = [['term', '🚙', 'Loan with fixed payments'], ['balance', '💳', 'Card or account'], ['owed', '🤝', 'Someone owes us']];
+function debts(){ return live('debts').sort(function(a, b){ return (a.createdAt || 0) - (b.createdAt || 0); }); }
+function debtKind(k){ return DEBT_KINDS.filter(function(x){ return x[0] === k; })[0] || DEBT_KINDS[0]; }
+function curKey(){ return periodKeyFor(currentPeriod()); }
+
+function debtStats(d){
+  if (d.kind === 'term') {
+    var n = +d.payments || 0, no = keysBetween(d.first, curKey()) + 1, ends = shiftKey(d.first, n - 1);
+    var done = no > n, started = no >= 1;
+    return {no:Math.max(0, Math.min(no, n)), n:n, ends:ends, frees:shiftKey(ends, 1), done:done, started:started, left:done ? 0 : round2((+d.monthly || 0) * (n - Math.max(1, no) + 1)), monthly:+d.monthly || 0};
+  }
+  var paid = d.kind === 'owed' ? sum(d.paid || [], function(x){ return x.a; }) : sum(live('tx').filter(function(t){ return t.debtId === d.id && t.type === 'expense'; }), function(t){ return t.amount; });
+  var left = round2(Math.max(0, (+d.balance || 0) - paid)), m = +d.monthly || 0, months = m > 0 && left > 0 ? Math.ceil(left / m) : null;
+  return {paid:round2(paid), left:left, done:left <= 0, monthly:m, months:months, clears:months ? shiftKey(curKey(), months - 1) : null};
+}
+function debtLine(d){
+  var s = debtStats(d);
+  if (d.kind === 'term') return s.done ? 'Paid off in ' + keyName(s.ends) : !s.started ? 'First payment in ' + keyName(d.first) : 'Payment ' + s.no + ' of ' + s.n + ' · ends ' + keyName(s.ends);
+  if (s.done) return d.kind === 'owed' ? 'Paid back in full' : 'Cleared';
+  return (d.kind === 'owed' ? fmtR(s.paid) + ' back so far' : fmtR(s.paid) + ' paid through Nestegg') + (s.clears ? ' · clear by ' + keyName(s.clears) + ' at ' + fmtR(s.monthly) + ' a month' : '');
+}
+function debtBar(d){
+  var s = debtStats(d);
+  if (d.kind === 'term') return bar(s.no, s.n, 'fixed');
+  return bar((+d.balance || 0) - s.left, +d.balance || 0, 'fixed');
+}
+
+/* ---------- on the Wealth tab ---------- */
+function debtsCard(){
+  var list = debts(), owe = 0, owedUs = 0;
+  list.forEach(function(d){ var s = debtStats(d); if (d.kind === 'owed') owedUs += s.left; else owe += s.left; });
+  var html = '<div class="card span2" id="debts"><div class="row between"><h2 style="margin:0">💳 Debts</h2><button class="btn sm" data-act="debtAdd">+ Add</button></div>';
+  if (!list.length) return html + '<p class="small muted">Add your car loan, cards, store accounts and money owed to family, or that someone owes you. Nestegg counts the payments, shows when each one ends and how much that frees up.</p></div>';
+  html += '<div class="kpis mt"><div class="kpi"><div class="l">We owe</div><div class="v">' + fmtR(owe) + '</div></div><div class="kpi"><div class="l">Owed to us</div><div class="v">' + fmtR(owedUs) + '</div></div></div>';
+  return html + list.map(function(d){
+    var s = debtStats(d);
+    return '<div class="tap" data-act="debtOpen" data-id="' + esc(d.id) + '" id="debt-' + esc(d.id) + '" style="padding:9px 0;cursor:pointer"><div class="row between"><span class="strong">' + debtKind(d.kind)[1] + ' ' + esc(d.name) + '</span><span class="small ' + (s.done ? 'pos' : 'muted') + '">' + (s.done ? 'Done ✓' : fmtR(s.left) + ' left') + '</span></div>' +
+      '<div style="margin-top:6px">' + debtBar(d) + '</div><div class="tiny muted" style="margin-top:4px">' + esc(debtLine(d)) + '</div></div>';
+  }).join('') + '</div>';
+}
+
+/* ---------- adding one ---------- */
+ACTIONS.debtAdd = function(){ openSheet('debtAdd', {kind:'term', name:'', monthly:'', payments:'', no:'', balance:'', categoryId:'c-carpay'}); };
+SHEETS.debtAdd = function(sh){
+  var k = sh.kind, lines = spendCats().filter(function(c){ return catGroup(c) === 'g-debt' || ['c-carpay', 'c-school', 'c-family', 'c-familyhome'].indexOf(c.id) >= 0; });
+  if (k !== 'owed' && !lines.some(function(c){ return c.id === sh.categoryId; })) lines.unshift(cat(sh.categoryId));
+  return '<h2>💳 Add a debt</h2><div class="chips">' + DEBT_KINDS.map(function(x){ return '<button class="chip' + (k === x[0] ? ' on' : '') + '" data-act="debtKind" data-id="' + x[0] + '">' + x[1] + ' ' + esc(x[2]) + '</button>'; }).join('') + '</div>' +
+    '<label class="field mt"><span>' + (k === 'owed' ? 'Who owes you, or what for' : 'Name') + '</span><input class="input" id="f-dname" data-input="dName" maxlength="40" placeholder="' + (k === 'term' ? 'Car payment' : k === 'balance' ? 'Credit card' : 'Loan to Tendai') + '" value="' + esc(sh.name) + '"></label>' +
+    (k === 'term' ? '<label class="field"><span>Monthly payment</span><input class="input" id="f-dmonthly" inputmode="decimal" placeholder="R" data-input="dMonthly" value="' + esc(sh.monthly) + '"></label>' +
+        '<div class="row" style="gap:8px"><label class="field" style="flex:1"><span>How many payments in all</span><input class="input" id="f-dpayments" inputmode="numeric" placeholder="72" data-input="dPayments" value="' + esc(sh.payments) + '"></label>' +
+        '<label class="field" style="flex:1"><span>This month\'s is number</span><input class="input" id="f-dno" inputmode="numeric" placeholder="35" data-input="dNo" value="' + esc(sh.no) + '"></label></div>' +
+        '<p class="tiny muted" style="margin-top:-4px">Your loan statement or banking app shows these, e.g. "instalment 35 of 72".</p>'
+      : '<label class="field"><span>' + (k === 'owed' ? 'How much they owe' : 'How much you owe now') + '</span><input class="input" id="f-dbalance" inputmode="decimal" placeholder="R" data-input="dBalance" value="' + esc(sh.balance) + '"></label>' +
+        '<label class="field"><span>' + (k === 'owed' ? 'They pay back a month (optional)' : 'You pay a month (optional)') + '</span><input class="input" id="f-dmonthly" inputmode="decimal" placeholder="R" data-input="dMonthly" value="' + esc(sh.monthly) + '"></label>') +
+    (k !== 'owed' ? '<label class="field"><span>Paid from the line</span><select class="input" id="f-dline" data-input="dLine">' + lines.map(function(c){ return '<option value="' + esc(c.id) + '"' + (c.id === sh.categoryId ? ' selected' : '') + '>' + esc(c.emoji + ' ' + c.name) + '</option>'; }).join('') + '</select></label>' : '') +
+    (sh.error ? '<p class="small neg" id="debt-error">' + esc(sh.error) + '</p>' : '') +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="debtSave">Add</button></div>';
+};
+ACTIONS.debtKind = function(el){ var k = el.getAttribute('data-id'); ui.sheet.kind = k; ui.sheet.categoryId = k === 'term' ? 'c-carpay' : 'c-debt'; ui.sheet.error = ''; renderSheet(); };
+['Name', 'Monthly', 'Payments', 'No', 'Balance', 'Line'].forEach(function(f){ INPUTS['d' + f] = function(el){ ui.sheet[{Name:'name', Monthly:'monthly', Payments:'payments', No:'no', Balance:'balance', Line:'categoryId'}[f]] = el.value; }; });
+ACTIONS.debtSave = function(){
+  var sh = ui.sheet, k = sh.kind, name = String(sh.name || '').trim().slice(0, 40), monthly = Math.max(0, parseAmount(sh.monthly) || 0);
+  function no(msg){ sh.error = msg; renderSheet(); }
+  if (!name) return no(k === 'owed' ? 'Who owes you?' : 'What\'s it called?');
+  var d = {id:'db-' + uid(), kind:k, name:name, monthly:monthly, categoryId:k === 'owed' ? null : sh.categoryId, createdAt:now(), startDate:todayStr()};
+  if (k === 'term') {
+    var n = Math.round(+sh.payments), at = Math.round(+sh.no);
+    if (!(monthly > 0)) return no('What\'s the monthly payment?');
+    if (!(n > 0)) return no('How many payments are there in all?');
+    if (!(at >= 1 && at <= n)) return no('This month\'s payment number should be between 1 and ' + n + '.');
+    d.payments = n; d.first = shiftKey(curKey(), -(at - 1));
+  } else {
+    d.balance = Math.max(0, parseAmount(sh.balance) || 0);
+    if (!(d.balance > 0)) return no(k === 'owed' ? 'How much do they owe?' : 'How much do you owe?');
+    if (k === 'owed') d.paid = [];
+  }
+  upsert('debts', d); saveState(); closeSheet(); render(true); toast(name + ' added');
+};
+
+/* ---------- one debt ---------- */
+ACTIONS.debtOpen = function(el){ openSheet('debt', {id:el.getAttribute('data-id')}); };
+SHEETS.debt = function(sh){
+  var d = byId('debts', sh.id); if (!d || d.deleted) return '<p class="small muted">Nothing here any more.</p>';
+  var s = debtStats(d), html = '<h2>' + debtKind(d.kind)[1] + ' ' + esc(d.name) + '</h2>';
+  if (d.kind === 'term') {
+    html += '<div class="kpis"><div class="kpi"><div class="l">Payment</div><div class="v">' + s.no + ' of ' + s.n + '</div></div><div class="kpi"><div class="l">A month</div><div class="v">' + fmtR(s.monthly) + '</div></div><div class="kpi"><div class="l">Still to pay</div><div class="v">' + fmtR(s.left) + '</div></div></div>' +
+      debtMonths(d) + '<p class="small mt">' + (s.done ? 'Paid off. 🎉' : 'Last payment in ' + esc(keyName(s.ends)) + '. From ' + esc(keyName(s.frees)) + ' that frees up ' + fmtR(s.monthly) + ' a month.') + '</p>';
+  } else {
+    html += '<div class="kpis"><div class="kpi"><div class="l">' + (d.kind === 'owed' ? 'They owed' : 'You owed') + '</div><div class="v">' + fmtR(d.balance) + '</div></div><div class="kpi"><div class="l">' + (d.kind === 'owed' ? 'Back' : 'Paid') + '</div><div class="v">' + fmtR(s.paid) + '</div></div><div class="kpi"><div class="l">Left</div><div class="v">' + fmtR(s.left) + '</div></div></div>' +
+      '<div class="mt">' + debtBar(d) + '</div><p class="small mt">' + esc(debtLine(d)) + '</p>' +
+      (s.done ? '' : '<div class="small strong mt">' + (d.kind === 'owed' ? 'Got some back?' : 'Made a payment?') + '</div><div class="row" style="gap:8px"><input class="input" id="f-dpay" inputmode="decimal" placeholder="R" value="' + esc(s.monthly ? String(Math.min(s.monthly, s.left)) : '') + '" style="flex:1;min-width:0"><button class="btn" data-act="debtPay">Record it</button></div>' +
+        '<p class="tiny muted" style="margin:4px 0 0">' + (d.kind === 'owed' ? 'Kept on this debt only: money coming back isn\'t income.' : 'Logged as spending from ' + esc(cat(d.categoryId).name) + ', so the budget sees it too.') + '</p>');
+  }
+  return html + '<div class="btns"><button class="btn danger" data-act="debtDelete">Remove</button><button class="btn" data-act="closeSheet">Done</button></div>';
+};
+// The last few months and the next few, one block each, like the video's car payment strip
+function debtMonths(d){
+  var s = debtStats(d), from = Math.max(1, s.no - 3), to = Math.min(s.n, from + 5), out = '';
+  for (var i = from; i <= to; i++) {
+    var k = shiftKey(d.first, i - 1), past = i < s.no || (i === s.no && s.done);
+    out += '<div style="flex:1;text-align:center"><div style="height:8px;border-radius:4px;background:' + (i <= s.no ? 'var(--brand)' : 'var(--line,#ddd)') + '"></div><div class="tiny ' + (i === s.no ? 'strong' : 'muted') + '" style="margin-top:3px">' + esc(MONTHS[+k.slice(5, 7) - 1]) + '</div></div>';
+  }
+  return '<div class="row mt" style="gap:4px">' + out + '</div>';
+}
+ACTIONS.debtPay = function(){
+  var d = Object.assign({}, byId('debts', ui.sheet.id)), a = parseAmount($('#f-dpay').value);
+  if (!(a > 0)) { toast('How much?'); return; }
+  if (d.kind === 'owed') { d.paid = (d.paid || []).concat([{d:todayStr(), a:round2(a)}]); upsert('debts', d); saveState(); renderSheet(); render(true); toast(fmtR(a) + ' back from ' + d.name); return; }
+  var before = snapshot();
+  upsert('tx', {id:'t-' + uid(), type:'expense', amount:round2(a), date:todayStr(), memberId:me().id, categoryId:d.categoryId || 'c-debt', note:d.name, debtId:d.id, method:device.lastMethod || 'eft', source:'manual', createdOn:todayStr(), createdAt:now()});
+  saveState(); renderSheet(); render(true); celebrate(before); toast(fmtR(a) + ' paid on ' + d.name);
+};
+ACTIONS.debtDelete = function(){
+  if (!confirmBox('Remove this debt from Nestegg? Payments you logged stay in your spending.')) return;
+  removeItem('debts', ui.sheet.id); saveState(); closeSheet(); render(true);
+};
+
+/* ---------- what stands out ---------- */
+// Worked out from the household's own entries; each item says what it is and where it comes from.
+function feeTx(t){ return t.type === 'expense' && (t.categoryId === 'c-fees' || (['g-admin', 'g-debt'].indexOf(catGroup(cat(t.categoryId))) >= 0 && /\b(interest|fees?|service charge|admin charge|monthly charge)\b/i.test(t.note || ''))); }
+function standsOut(){
+  return memo('standsOut', function(){
+    var out = [], t = todayStr(), cur = curKey();
+    // loans finishing within three months
+    debts().filter(function(d){ return d.kind === 'term'; }).forEach(function(d){
+      var s = debtStats(d); if (s.done || !s.started || s.n - s.no > 2) return;
+      out.push({id:'end-' + d.id, e:'🏁', t:'Payment ' + s.no + ' of ' + s.n + ' on ' + d.name, s:'From ' + keyName(s.frees) + ' you free up ' + fmtR(s.monthly) + ' a month.', act:'debtOpen', aid:d.id});
+    });
+    // bank fees and interest this calendar year, month by month
+    var y = t.slice(0, 4), fees = live('tx').filter(function(x){ return x.date.slice(0, 4) === y && x.date <= t && feeTx(x); });
+    var feeSum = round2(sum(fees, function(x){ return x.amount; }));
+    if (feeSum >= 1) {
+      var months = {}; fees.forEach(function(x){ var m = x.date.slice(0, 7); months[m] = months[m] || {n:0, a:0}; months[m].n++; months[m].a += x.amount; });
+      var keys = Object.keys(months).sort().slice(-4);
+      out.push({id:'fees', e:'🏦', t:'You\'ve paid ' + fmtR(feeSum, true) + ' in bank fees and interest this year', s:fees.length + ' charge' + (fees.length === 1 ? '' : 's') + ' since 1 January.',
+        months:keys.map(function(k){ return {m:MONTHS[+k.slice(5, 7) - 1], n:months[k].n, a:round2(months[k].a)}; })});
+    }
+    // subscriptions last full month
+    var prev = prevPeriodStart(currentPeriod()), ps = periodSummary(prev), subs = ps.txs.filter(function(x){ return x.type === 'expense' && x.categoryId === 'c-subs'; });
+    if (subs.length) {
+      var names = []; subs.forEach(function(x){ var n = String(x.note || '').trim(); if (n && names.indexOf(n) < 0) names.push(n); });
+      out.push({id:'subs', e:'📺', t:fmtR(sum(subs, function(x){ return x.amount; })) + ' a month on subscriptions', s:(names.length ? names.slice(0, 4).join(', ') + (names.length > 4 ? ' and more' : '') + '. ' : '') + 'Worth checking you still use each one.'});
+    }
+    // the biggest rise against the same point last month
+    var now = periodSummary(currentPeriod()), day = now.dayIndex;
+    if (day >= 5) {
+      var lastTo = addDays(prev, day - 1), was = {}, is = spendGroups(currentPeriod()).list;
+      txBetween(prev, lastTo < ps.end ? lastTo : ps.end).forEach(function(x){ if (x.type === 'expense' && x.categoryId !== 'c-reward') { var g = catGroup(cat(x.categoryId)); was[g] = (was[g] || 0) + x.amount; } });
+      var best = null;
+      is.forEach(function(g){ var w = was[g.id] || 0, up = g.amount - w; if (w > 0 && up >= 300 && up / w >= 0.2 && !isFixedGroup(g.id) && (!best || up > best.up)) best = {g:g, up:up, pct:up / w * 100}; });
+      if (best) out.push({id:'rise', e:'📈', t:best.g.name + ' is up ' + fmtR(best.up) + ' (' + Math.round(best.pct) + '%)', s:'Against the same ' + day + ' days of ' + periodName(prev) + '.'});
+    }
+    return out;
+  });
+}
+function isFixedGroup(g){ var cs = spendCats().filter(function(c){ return catGroup(c) === g; }); return cs.length > 0 && cs.every(function(c){ return smartKind(c) === 'keep'; }); }
+function standsHtml(x){
+  return '<div class="li' + (x.act ? ' tap" data-act="' + x.act + '" data-id="' + esc(x.aid) : '') + '" id="stand-' + esc(x.id) + '"><div class="ico">' + x.e + '</div><div class="main"><div class="t" style="white-space:normal">' + esc(x.t) + '</div><div class="s" style="white-space:normal">' + esc(x.s) + '</div>' +
+    (x.months ? '<div class="row mt" style="gap:6px">' + x.months.map(function(m){ return '<div class="kpi" style="flex:1;padding:6px;text-align:center"><div class="tiny muted">' + esc(m.m) + '</div><div class="small strong">' + fmtR(m.a, true) + '</div><div class="tiny muted">' + m.n + '×</div></div>'; }).join('') + '</div>' : '') + '</div></div>';
+}
+function standsCard(){
+  var list = standsOut();
+  return '<div class="card span2" id="stands"><h2>👀 Stands out</h2>' + (list.length ? list.map(standsHtml).join('') : '<p class="small muted">Nothing stands out right now. Loans about to end, bank fees and interest, subscriptions and spending that jumped show up here.</p>') + '</div>';
+}
+
+/* ===== Nestegg — the money calendar: what comes in and goes out, day by day ===== */
+// From the video the owner shared: "map it out on a calendar", with pay, rent, the car loan, utilities and the phone on their days,
+// money in, money out and what goes to the trip. Repeat payments are found in the household's own history (repeatsFound): the same
+// kind, line and wording in at least two of the last three full months, at about the same amount (±15%) and day (±4). Days already
+// lived show what really happened; days to come show the repeats not yet seen this month. The household can hide a found repeat
+// (household.repeatsOff) or add its own (household.repeatsOwn: {id, name, amount, day, dir}).
+function repeatWords(note){ return String(note || '').toLowerCase().replace(/[0-9#*.,:\/\\-]+/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '); }
+function repeatKey(t){ return t.type + '|' + (t.type === 'expense' ? t.categoryId : '') + '|' + repeatWords(t.note); }
+function repeatsFound(){
+  return memo('repeats', function(){
+    var cur = currentPeriod(), months = [], p = prevPeriodStart(cur);
+    for (var i = 0; i < 3; i++) { months.push(p); p = prevPeriodStart(p); }
+    var from = months[2], to = periodEndFor(months[0]), groups = {}, off = (state.household || {}).repeatsOff || {};
+    txBetween(from, to).forEach(function(t){
+      if ((t.type !== 'expense' && t.type !== 'income') || !(+t.amount > 0) || t.categoryId === 'c-reward') return;
+      var k = repeatKey(t); (groups[k] = groups[k] || []).push(t);
+    });
+    var out = [];
+    Object.keys(groups).forEach(function(k){
+      if (off[k]) return;
+      var g = groups[k], amt = median(g.map(function(t){ return +t.amount; })), day = median(g.map(function(t){ return +t.date.slice(8, 10); }));
+      var fit = g.filter(function(t){ return Math.abs(t.amount - amt) <= amt * 0.15 && Math.abs(+t.date.slice(8, 10) - day) <= 4; });
+      var seen = {}; fit.forEach(function(t){ seen[periodStartFor(t.date)] = 1; });
+      if (Object.keys(seen).length < 2) return;
+      var t0 = fit[fit.length - 1], c = t0.type === 'expense' ? cat(t0.categoryId) : null;
+      out.push({key:k, name:t0.note ? String(t0.note).slice(0, 30) : c ? c.name : 'Income', dir:t0.type === 'income' ? 'in' : 'out', amount:round2(median(fit.map(function(t){ return +t.amount; }))), day:Math.round(day), categoryId:c ? c.id : null, emoji:c ? c.emoji : '💰'});
+    });
+    ((state.household || {}).repeatsOwn || []).forEach(function(r){ out.push({key:'own|' + r.id, own:r.id, name:r.name, dir:r.dir, amount:+r.amount, day:+r.day, categoryId:r.categoryId || null, emoji:r.dir === 'in' ? '💰' : '📌'}); });
+    return out.sort(function(a, b){ return a.day - b.day || b.amount - a.amount; });
+  });
+}
+// The date a repeat falls on within a budget month (a day past the month's end, like the 31st, moves to the last day)
+function repeatDate(r, p){
+  var end = periodEndFor(p), d = p, out = null;
+  while (d <= end) { if (+d.slice(8, 10) === Math.min(r.day, daysInMonth(+d.slice(0, 4), +d.slice(5, 7) - 1))) { out = d; break; } d = addDays(d, 1); }
+  return out;
+}
+// Has this repeat already happened this month? Same key, or the same kind and line at about the amount.
+function repeatDone(r, txs){ return txs.some(function(t){ return repeatKey(t) === r.key || (t.type === (r.dir === 'in' ? 'income' : 'expense') && (r.categoryId ? t.categoryId === r.categoryId : true) && Math.abs(t.amount - r.amount) <= r.amount * 0.15 && (!!r.categoryId || repeatWords(t.note) === repeatWords(r.name))); }); }
+
+function calendarModel(p){
+  var s = periodSummary(p), t = todayStr(), days = [], cur = s.isCurrent;
+  var reps = repeatsFound(), byDay = {};
+  function at(d){ return byDay[d] = byDay[d] || {d:d, items:[], in:0, out:0}; }
+  s.txs.forEach(function(x){
+    if (x.date > t) return;
+    if (x.type === 'income') { at(x.date).in += x.amount; at(x.date).items.push({name:x.note || 'Income', amount:x.amount, dir:'in', real:true}); }
+    else if (x.type === 'expense' && x.categoryId !== 'c-reward') { at(x.date).out += x.amount; at(x.date).items.push({name:x.note || cat(x.categoryId).name, amount:x.amount, dir:'out', real:true}); }
+  });
+  var seenTx = s.txs.filter(function(x){ return x.date <= t; });
+  reps.forEach(function(r){
+    var d = repeatDate(r, p); if (!d || d < t || (cur && repeatDone(r, seenTx))) return;
+    var o = at(d); o.items.push({name:r.name, amount:r.amount, dir:r.dir, expected:true, key:r.key}); if (r.dir === 'in') o.in += r.amount; else o.out += r.amount;
+  });
+  // money in hand, day by day: today's figure, then what's expected
+  var bal = cur ? inHand(p).left : null, low = null, d = p, totals = {in:0, out:0, expIn:0, expOut:0};
+  while (d <= s.end) {
+    var o = byDay[d] || {d:d, items:[], in:0, out:0};
+    o.items.forEach(function(it){ if (it.expected) totals[it.dir === 'in' ? 'expIn' : 'expOut'] += it.amount; else totals[it.dir] += it.amount; });
+    if (cur && d > t) { bal = round2(bal + o.in - o.out); o.bal = bal; if (!low || bal < low.bal) low = {d:d, bal:bal}; }
+    else if (cur && d === t) o.bal = bal;
+    days.push(o); d = addDays(d, 1);
+  }
+  var goals = goalsOpen().map(function(g){ var pace = goalPace(g); return {g:g, need:pace && !pace.late ? Math.max(0, pace.need - pace.thisMonth) : 0}; }).filter(function(x){ return x.need > 0; });
+  var toGoals = round2(sum(goals, function(x){ return x.need; }));
+  return {p:p, s:s, days:days, totals:totals, low:low, goals:goals, toGoals:toGoals, end:cur ? round2(bal - toGoals) : null, cur:cur};
+}
+
+VIEWS.calendar = function(){
+  var p = ui.period || currentPeriod(), m = calendarModel(p), t = todayStr();
+  var html = topbar('Money calendar', 'What comes in and goes out, day by day', {back:true, right:' '}) + periodNav(p, true);
+  var inn = round2(m.totals.in + m.totals.expIn), out = round2(m.totals.out + m.totals.expOut);
+  html += '<div class="card"><div class="kpis"><div class="kpi"><div class="l">Money in</div><div class="v pos">+' + fmtR(inn) + '</div></div><div class="kpi"><div class="l">Money out</div><div class="v neg">−' + fmtR(out) + '</div></div>' +
+    '<div class="kpi"><div class="l">To goals</div><div class="v">' + fmtR(m.toGoals) + '</div></div></div>' +
+    (m.cur ? '<p class="small mt" id="cal-end" style="margin-bottom:0">' + (m.low && m.low.bal < 0 ? '⚠️ At this rate you\'d be ' + fmtR(-m.low.bal) + ' short on ' + esc(fmtDate(m.low.d)) + '. ' : m.low ? 'Lowest point: ' + fmtR(m.low.bal) + ' on ' + esc(fmtDate(m.low.d)) + '. ' : '') +
+      'In hand at the month\'s end, after goals: <b>' + fmtR(m.end) + '</b>.</p>' : '<p class="tiny muted mt" style="margin-bottom:0">' + (p > t ? 'Planned from your repeat payments.' : 'What really happened.') + '</p>') +
+    (m.goals.length ? '<div class="mt">' + m.goals.map(function(x){ return '<div class="row between small"><span>🎯 ' + esc(x.g.name) + '</span><span>' + fmtR(x.need) + ' still to put in</span></div>'; }).join('') + '</div>' : '') + '</div>';
+  // the grid: Monday first, the budget month's days only
+  var lead = (new Date(+p.slice(0, 4), +p.slice(5, 7) - 1, +p.slice(8, 10)).getDay() + 6) % 7, cells = '';
+  ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(function(w){ cells += '<div class="tiny muted center">' + w + '</div>'; });
+  for (var i = 0; i < lead; i++) cells += '<div></div>';
+  m.days.forEach(function(o){
+    var net = round2(o.in - o.out), exp = o.items.some(function(it){ return it.expected; });
+    cells += '<div class="tap cal-day' + (o.d === t ? ' today' : '') + '" data-act="calDay" data-id="' + o.d + '" id="cal-' + o.d + '" style="cursor:pointer;border:1px solid var(--line,#e5e0d8);border-radius:8px;padding:3px 2px;min-height:46px;' + (o.d === t ? 'outline:2px solid var(--brand);' : '') + (o.d > t ? '' : 'opacity:.85;') + '">' +
+      '<div class="tiny strong">' + +o.d.slice(8, 10) + '</div>' +
+      (o.items.length ? '<div class="tiny ' + (net >= 0 ? 'pos' : 'neg') + '" style="font-size:10px;line-height:1.2;word-break:break-all' + (exp ? ';font-style:italic' : '') + '">' + (net >= 0 ? '+' : '−') + shortR(Math.abs(net)) + '</div>' : '') +
+      (o.bal != null && o.bal < 0 ? '<div style="height:3px;border-radius:2px;background:var(--neg,#c0392b);margin-top:2px"></div>' : '') + '</div>';
+  });
+  html += '<div class="card"><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px">' + cells + '</div><p class="tiny muted mt" style="margin-bottom:0"><i>Slanted</i> amounts are expected repeats; the rest really happened. Tap a day.</p></div>';
+  // coming up, as a list (easier on a phone than the grid)
+  var next = []; m.days.forEach(function(o){ if (o.d >= t) o.items.forEach(function(it){ if (it.expected) next.push({d:o.d, it:it, bal:o.bal}); }); });
+  html += '<div class="card" id="cal-next"><h2>Coming up</h2>' + (next.length ? next.slice(0, 20).map(function(x){
+    return '<div class="li"><div class="ico">' + (x.it.dir === 'in' ? '💰' : '📤') + '</div><div class="main"><div class="t">' + esc(x.it.name) + '</div><div class="s">' + esc(fmtDate(x.d)) + (x.bal != null ? ' · then ' + fmtR(x.bal) + ' in hand' : '') + '</div></div><span class="amt ' + (x.it.dir === 'in' ? 'pos' : '') + '">' + (x.it.dir === 'in' ? '+' : '−') + fmtR(x.it.amount) + '</span></div>';
+  }).join('') : '<p class="small muted">No repeat payments still to come this month.</p>') + '</div>';
+  html += repeatsCard();
+  return html;
+};
+function shortR(n){ return n >= 10000 ? 'R' + Math.round(n / 1000) + 'k' : n >= 1000 ? 'R' + (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : 'R' + Math.round(n); }
+ACTIONS.calDay = function(el){ openSheet('calDay', {d:el.getAttribute('data-id')}); };
+SHEETS.calDay = function(sh){
+  var p = periodStartFor(sh.d), m = calendarModel(p), o = m.days.filter(function(x){ return x.d === sh.d; })[0] || {items:[]};
+  return '<h2>' + esc(fmtDate(sh.d, true)) + '</h2>' + (o.items.length ? o.items.map(function(it){
+    return '<div class="li"><div class="main"><div class="t">' + esc(it.name) + '</div><div class="s">' + (it.expected ? 'Expected, from your repeat payments' : 'Logged') + '</div></div><span class="amt ' + (it.dir === 'in' ? 'pos' : '') + '">' + (it.dir === 'in' ? '+' : '−') + fmtR(it.amount) + '</span></div>';
+  }).join('') : '<p class="small muted">Nothing on this day.</p>') + (o.bal != null ? '<p class="small mt">In hand at the end of the day: <b>' + fmtR(o.bal) + '</b></p>' : '') +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Done</button></div>';
+};
+
+/* ---------- the repeats it found, and your own ---------- */
+function repeatsCard(){
+  var reps = repeatsFound();
+  return '<div class="card" id="repeats"><div class="row between"><h2 style="margin:0">Repeat payments</h2><button class="btn sm" data-act="repeatAdd">+ Add</button></div>' +
+    '<p class="small muted">Found in your last three months: the same payment at about the same amount and day. Hide one that\'s finished, or add one Nestegg can\'t see yet.</p>' +
+    (reps.length ? reps.map(function(r){
+      return '<div class="li"><div class="ico">' + r.emoji + '</div><div class="main"><div class="t">' + esc(r.name) + '</div><div class="s">Around the ' + ordinal(r.day) + (r.own ? ' · added by you' : '') + '</div></div><span class="amt ' + (r.dir === 'in' ? 'pos' : '') + '">' + (r.dir === 'in' ? '+' : '−') + fmtR(r.amount) + '</span>' +
+        '<button class="btn ghost sm" data-act="repeatHide" data-id="' + esc(r.key) + '" aria-label="Remove">✕</button></div>';
+    }).join('') : '<p class="small muted">None found yet. They show after two months of entries.</p>') + '</div>';
+}
+ACTIONS.repeatHide = function(el){
+  var k = el.getAttribute('data-id'), h = Object.assign({}, state.household);
+  if (k.indexOf('own|') === 0) h.repeatsOwn = (h.repeatsOwn || []).filter(function(r){ return 'own|' + r.id !== k; });
+  else { h.repeatsOff = Object.assign({}, h.repeatsOff || {}); h.repeatsOff[k] = todayStr(); }
+  setHousehold(h); saveState(); render(true); toast('Taken off the calendar');
+};
+ACTIONS.repeatAdd = function(){ openSheet('repeatAdd', {dir:'out'}); };
+SHEETS.repeatAdd = function(sh){
+  return '<h2>📌 Add a repeat payment</h2><div class="chips"><button class="chip' + (sh.dir === 'out' ? ' on' : '') + '" data-act="repeatDir" data-id="out">📤 Going out</button><button class="chip' + (sh.dir === 'in' ? ' on' : '') + '" data-act="repeatDir" data-id="in">💰 Coming in</button></div>' +
+    '<label class="field mt"><span>What</span><input class="input" id="f-rname" maxlength="30" placeholder="' + (sh.dir === 'in' ? 'Salary' : 'Phone contract') + '"></label>' +
+    '<div class="row" style="gap:8px"><label class="field" style="flex:1"><span>Amount</span><input class="input" id="f-ramount" inputmode="decimal" placeholder="R"></label><label class="field" style="flex:1"><span>Day of the month</span><input class="input" id="f-rday" inputmode="numeric" placeholder="1–31"></label></div>' +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Cancel</button><button class="btn primary" data-act="repeatSave">Add</button></div>';
+};
+ACTIONS.repeatDir = function(el){ ui.sheet.dir = el.getAttribute('data-id'); renderSheet(); };
+ACTIONS.repeatSave = function(){
+  var name = ($('#f-rname').value || '').trim().slice(0, 30), a = parseAmount($('#f-ramount').value), day = Math.round(+$('#f-rday').value);
+  if (!name) { toast('What is it?'); return; }
+  if (!(a > 0)) { toast('How much?'); return; }
+  if (!(day >= 1 && day <= 31)) { toast('Which day of the month, 1 to 31?'); return; }
+  var h = Object.assign({}, state.household); h.repeatsOwn = (h.repeatsOwn || []).concat([{id:uid(), name:name, amount:round2(a), day:day, dir:ui.sheet.dir}]);
+  setHousehold(h); saveState(); closeSheet(); render(true); toast(name + ' added to the calendar');
+};
+
+/* ===== Nestegg — plan a trip: what it costs, what you can afford, and what if ===== */
+// From the video the owner shared: "a week in Rome this spring, how are our finances looking?", "what can we even afford?",
+// "if we put the car payment toward the trip, does that cover 10 days instead of 7?" and "find a few hotels that fit our budget".
+// A trip is a goal with a `trip` plan: {where, from, leave, nights, adults, kids, travel, perNight, foodDay, extras, ifs}. Its target is
+// travel + nights × (a night's stay + a day's food) + extras, so goal pace, the calendar and Smart budget all see it like any goal.
+// Every figure is worked out here from the household's own months. Hotels and flights are search links with the dates, people and
+// top price filled in: the free AI key can't search the web, so real prices are on those sites.
+function holidayCost(t){ return round2((+t.travel || 0) + (+t.nights || 0) * ((+t.perNight || 0) + (+t.foodDay || 0)) + (+t.extras || 0)); }
+// What's left over in a usual month: income received − spent − saved, over the last three full months
+function roomEachMonth(){
+  return memo('room', function(){
+    var out = [], q = prevPeriodStart(currentPeriod()), first = startedPeriod();
+    for (var i = 0; i < 6 && out.length < 3 && q >= first; i++) { var s = periodSummary(q); if (s.spent > 0 && s.income > 0) out.push(Math.max(0, s.income - s.spent - s.saved)); q = prevPeriodStart(q); }
+    return out.length ? Math.round(sum(out) / out.length) : 0;
+  });
+}
+function payName(d){ return 'the ' + d.name + (/payment|instalment/i.test(d.name) ? '' : ' payment'); }
+// Ways to find more for it: each loan that ends before you leave, its payment from the month it frees up
+function holidayIfs(t){
+  var leaveKey = periodKeyFor(t.leave), out = [];
+  debts().filter(function(d){ return d.kind === 'term'; }).forEach(function(d){
+    var s = debtStats(d); if (s.done || s.frees > leaveKey) return;
+    var months = keysBetween(s.frees, leaveKey); if (months < 1) return;
+    out.push({id:d.id, label:'Put ' + payName(d) + ' towards it once it ends', note:'From ' + keyName(s.frees) + ': ' + months + ' × ' + fmtR(s.monthly), add:round2(s.monthly * months)});
+  });
+  return out;
+}
+function holidayModel(t, goalId){
+  var cur = periodKeyFor(currentPeriod()), leaveKey = periodKeyFor(t.leave), months = Math.max(0, keysBetween(cur, leaveKey));
+  var saved = goalId ? goalSaved(goalId) : 0, room = roomEachMonth(), ifs = holidayIfs(t), on = t.ifs || {};
+  var extra = round2(sum(ifs.filter(function(x){ return on[x.id]; }), function(x){ return x.add; }));
+  var cost = holidayCost(t), base = round2(saved + room * months), can = round2(base + extra), perDay = (+t.perNight || 0) + (+t.foodDay || 0);
+  function nightsFor(money){ return perDay > 0 ? Math.max(0, Math.floor((money - (+t.travel || 0) - (+t.extras || 0)) / perDay)) : 0; }
+  return {cost:cost, months:months, saved:saved, room:room, ifs:ifs, extra:extra, base:base, can:can, nightsBase:nightsFor(base), nightsCan:nightsFor(can),
+    need:months > 0 ? Math.ceil(Math.max(0, cost - saved) / months / 10) * 10 : Math.max(0, cost - saved), fits:can >= cost};
+}
+function holidayWords(t, m){
+  var n = +t.nights || 0, w = esc(t.where || 'the trip');
+  if (!m.room && !m.saved) return 'Nestegg needs a full month of income and spending to say what you can afford. The cost is worked out already.';
+  var s = 'By ' + esc(keyName(periodKeyFor(t.leave))) + ' you could have about <b>' + fmtR(m.can) + '</b>' + (m.extra ? ' (' + fmtR(m.extra) + ' of it from the what-ifs)' : '') + '. ';
+  s += m.fits ? 'That covers ' + w + ' for ' + n + ' night' + (n === 1 ? '' : 's') + '.' : 'That\'s ' + fmtR(m.cost - m.can) + ' short of ' + n + ' night' + (n === 1 ? '' : 's') + '.';
+  if (m.nightsCan !== n && m.nightsCan > 0) s += ' It would cover <b>' + m.nightsCan + ' night' + (m.nightsCan === 1 ? '' : 's') + '</b>' + (m.extra && m.nightsBase !== m.nightsCan ? ' instead of ' + m.nightsBase : '') + '.';
+  return s;
+}
+function holidayLinks(t){
+  var city = String(t.where || '').trim(), checkin = t.leave, checkout = addDays(t.leave, +t.nights || 1), a = +t.adults || 2, k = +t.kids || 0, top = Math.round(+t.perNight || 0), e = encodeURIComponent;
+  if (!city) return [];
+  var out = [
+    ['Booking.com', 'https://www.booking.com/searchresults.html?ss=' + e(city) + '&checkin=' + checkin + '&checkout=' + checkout + '&group_adults=' + a + '&group_children=' + k + '&no_rooms=1&selected_currency=ZAR' + (top ? '&nflt=' + e('price=ZAR-0-' + top + '-1') : '')],
+    ['Airbnb', 'https://www.airbnb.co.za/s/' + e(city) + '/homes?checkin=' + checkin + '&checkout=' + checkout + '&adults=' + a + '&children=' + k + (top ? '&price_max=' + top : '')],
+    ['Google Hotels', 'https://www.google.com/travel/search?q=' + e('hotels in ' + city + (top ? ' under R' + top + ' a night' : '') + ' ' + checkin + ' to ' + checkout)]];
+  if (t.from) out.push(['Flights on Google', 'https://www.google.com/travel/flights?q=' + e('Flights to ' + city + ' from ' + t.from + ' on ' + checkin + ' through ' + checkout)]);
+  return out;
+}
+
+/* ---------- the planner ---------- */
+function holidayGoals(){ return live('goals').filter(function(g){ return g.trip; }); }
+function holidayDraft(where){ return {id:null, t:{where:where || '', from:'Johannesburg', leave:addDays(todayStr(), 180), nights:7, adults:2, kids:0, travel:'', perNight:'', foodDay:'', extras:'', ifs:{}}}; }
+ACTIONS.holidayNew = function(el){ closeSheet(); ui.holiday = holidayDraft(el && el.getAttribute && el.getAttribute('data-where')); openView('holiday'); };
+ACTIONS.holidayOpen = function(el){ var g = byId('goals', el.getAttribute('data-id')); if (!g) return; closeSheet(); ui.holiday = {id:g.id, t:Object.assign({ifs:{}}, g.trip)}; openView('holiday'); };
+VIEWS.holiday = function(){
+  if (!ui.holiday) ui.holiday = holidayDraft('');
+  var h = ui.holiday, t = h.t, m = holidayModel(t, h.id), links = holidayLinks(t);
+  function f(id, label, val, attrs){ return '<label class="field" style="flex:1;min-width:0"><span>' + label + '</span><input class="input" id="f-h' + id + '" data-change="holidayField" data-id="' + id + '" value="' + esc(val == null ? '' : val) + '"' + (attrs || '') + '></label>'; }
+  var html = topbar(h.id ? esc((byId('goals', h.id) || {}).name || 'Trip') : 'Plan a trip', 'What it costs, and what you can afford', {back:true, backAct:'holidayExit', right:' '});
+  html += '<div class="card"><h2>The trip</h2>' + f('where', 'Where to', t.where, ' maxlength="40" placeholder="Rome"') +
+    '<div class="row" style="gap:8px">' + f('leave', 'Leaving', t.leave, ' type="date"') + f('nights', 'Nights', t.nights, ' inputmode="numeric"') + '</div>' +
+    '<div class="row" style="gap:8px">' + f('adults', 'Adults', t.adults, ' inputmode="numeric"') + f('kids', 'Children', t.kids, ' inputmode="numeric"') + f('from', 'Flying from', t.from, ' maxlength="30"') + '</div></div>';
+  html += '<div class="card"><h2>What it costs</h2><div class="row" style="gap:8px">' + f('travel', 'Flights &amp; travel (all of you)', t.travel, ' inputmode="decimal" placeholder="R"') + f('perNight', 'A night\'s stay', t.perNight, ' inputmode="decimal" placeholder="R"') + '</div>' +
+    '<div class="row" style="gap:8px">' + f('foodDay', 'Food &amp; outings a day', t.foodDay, ' inputmode="decimal" placeholder="R"') + f('extras', 'Visas, insurance, extras', t.extras, ' inputmode="decimal" placeholder="R"') + '</div>' +
+    '<div class="row between mt"><span class="strong">The whole trip</span><span class="big-num" id="holiday-cost" style="font-size:22px">' + fmtR(m.cost) + '</span></div>' +
+    '<p class="tiny muted" style="margin-bottom:0">Not sure of prices? The links below open real searches with your dates and people filled in.</p></div>';
+  html += '<div class="card" id="holiday-afford"><h2>What you can afford</h2>' +
+    '<div class="kpis"><div class="kpi"><div class="l">Left over a month</div><div class="v">' + fmtR(m.room) + '</div></div><div class="kpi"><div class="l">Months to save</div><div class="v">' + m.months + '</div></div><div class="kpi"><div class="l">Saved so far</div><div class="v">' + fmtR(m.saved) + '</div></div></div>' +
+    '<p class="small mt" id="holiday-words">' + holidayWords(t, m) + '</p>' +
+    (m.months > 0 && m.cost > 0 ? '<p class="small" style="margin-top:0">To have it all in time: <b>' + fmtR(m.need) + ' a month</b>.</p>' : '') +
+    (m.ifs.length ? '<div class="small strong mt">What if…</div>' + m.ifs.map(function(x){ return '<label class="row" style="gap:8px;padding:6px 0;align-items:flex-start"><input type="checkbox" data-change="holidayIf" data-id="' + esc(x.id) + '"' + ((t.ifs || {})[x.id] ? ' checked' : '') + ' style="margin-top:3px"><span><span class="small">' + esc(x.label) + '</span><br><span class="tiny muted">' + esc(x.note) + ' = ' + fmtR(x.add) + '</span></span></label>'; }).join('') : '') +
+    '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:6px">' + [-3, -1, 1, 3].map(function(d){ var n = Math.max(1, (+t.nights || 0) + d); return '<button class="btn sm" data-act="holidayNights" data-id="' + n + '">' + n + ' nights: ' + fmtR(holidayCost(Object.assign({}, t, {nights:n}))) + '</button>'; }).join('') + '</div>' +
+    '<p class="tiny muted mt" style="margin-bottom:0">Left over a month is the average of your last three full months: income received, less spending and saving.</p></div>';
+  if (links.length) html += '<div class="card" id="holiday-links"><h2>Find a place</h2><p class="small muted">Searches with your dates, ' + ((+t.adults || 0) + (+t.kids || 0)) + ' people' + (+t.perNight ? ' and up to ' + fmtR(t.perNight) + ' a night' : '') + ' filled in. Prices are on each site.</p>' +
+    links.map(function(l){ return '<a class="btn block mt" href="' + esc(l[1]) + '" target="_blank" rel="noopener" data-site="' + esc(l[0]) + '">' + esc(l[0]) + '</a>'; }).join('') + '</div>';
+  html += '<div class="btns" style="padding:0 16px 24px"><button class="btn" data-act="holidayExit">Close</button><button class="btn primary" data-act="holidaySave">' + (h.id ? 'Save changes' : 'Make it a goal') + '</button></div>';
+  return html;
+};
+CHANGES.holidayField = function(el){
+  var k = el.getAttribute('data-id'), v = el.value, t = ui.holiday.t;
+  if (['nights', 'adults', 'kids'].indexOf(k) >= 0) v = Math.max(k === 'kids' ? 0 : 1, Math.round(+v) || 0);
+  else if (['travel', 'perNight', 'foodDay', 'extras'].indexOf(k) >= 0) v = Math.max(0, parseAmount(v) || 0);
+  else v = String(v).slice(0, 40);
+  t[k] = v; render(true);
+};
+CHANGES.holidayIf = function(el){ var t = ui.holiday.t; t.ifs = Object.assign({}, t.ifs || {}); t.ifs[el.getAttribute('data-id')] = el.checked; render(true); };
+ACTIONS.holidayNights = function(el){ ui.holiday.t.nights = +el.getAttribute('data-id'); render(true); };
+ACTIONS.holidayExit = function(){ ui.holiday = null; ui.view = null; render(); window.scrollTo(0, 0); };
+ACTIONS.holidaySave = function(){
+  var h = ui.holiday, t = h.t, cost = holidayCost(t), was = !!h.id;
+  if (!String(t.where || '').trim()) { toast('Where are you going?'); return; }
+  if (!t.leave || t.leave <= todayStr()) { toast('Pick a leaving date in the future'); return; }
+  if (!(cost > 0)) { toast('Add what it costs'); return; }
+  var g = h.id ? Object.assign({}, byId('goals', h.id)) : {id:'g-' + uid(), createdOn:todayStr(), emoji:'✈️'};
+  g.name = h.id ? g.name : 'Trip to ' + String(t.where).trim(); g.target = cost; g.targetDate = t.leave; g.trip = Object.assign({}, t);
+  if (g.reachedOn && goalSaved(g.id) < g.target) g.reachedOn = null;
+  upsert('goals', g); saveState(); h.id = g.id; render(true); toast(was ? 'Saved' : 'Trip saved as a goal 🎯');
+};
+
+/* ===== Nestegg — Ask Nestegg: questions in your own words, answered from your own numbers ===== */
+// From the video the owner shared: "how are our finances looking?", "what can we even afford?", "where is our money going every
+// month?", "anything else stand out?", "if we put the car payment toward the trip…", "map it out on a calendar", "find hotels".
+// Questions are matched by rules on the phone (askIntent) and answered with Nestegg's own figures and cards, so they work offline
+// and every number can be checked. Only a question no rule knows goes to Google's AI (when the household has a key), with the
+// month's figures and no names; the AI only words an answer from those figures and is told never to give investment advice.
+var ASK_CHIPS = ['How are our finances looking?', 'Where is our money going?', 'What can we afford?', 'Anything stand out?', 'Map out the month', 'How are our debts?'];
+function askClean(s){ return String(s || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+function askIntent(text){
+  var s = askClean(text);
+  if (/\bwhat if\b|\bif we (put|move|use|add)\b|\binstead of\b/.test(s)) return 'whatif';
+  if (/\bhotel|\bairbnb|\bplace to stay|\baccommodation|\bflights?\b/.test(s)) return 'hotels';
+  if (/\bafford\b|\btrip\b|\bholiday\b|\bvacation\b|\btravel|\bweek in\b|\bdays in\b|\bgo to [a-z]/.test(s)) return 'afford';
+  if (/\bstand(s)? out\b|\banything else\b|\bnotice\b|\bsurpris|\binsight|\bunusual\b/.test(s)) return 'stand';
+  if (/\bcalendar\b|\bmap (it |this |the month )?out\b|\bcoming up\b|\bbills?\b|\bdue\b|\bnext (week|few days)\b|\bdebit orders?\b/.test(s)) return 'calendar';
+  if (/\bdebts?\b|\bloans?\b|\bowe\b|\bowed\b|\bcredit card\b|\bcar payment\b/.test(s)) return 'debts';
+  if (/\bwhere\b.*\b(money|it) (go|going|goes|went)\b|\bwhat do we spend\b|\bspending by\b|\bbreakdown\b|\bbiggest\b|\bfixed costs?\b|\bflexible\b/.test(s)) return 'where';
+  if (/\bhow (are|is) (we|our|things|it)\b|\bfinances\b|\boverview\b|\bdoing\b|\blooking\b/.test(s)) return 'overview';
+  if (/\bsav(e|ed|ing|ings)\b|\bgoals?\b/.test(s)) return 'saving';
+  return null;
+}
+// "a week in Rome", "10 days in Cape Town", "to Mauritius"
+function askPlace(text){ var m = String(text).match(/\b(?:in|to|at)\s+((?:[A-Z][\w'-]+)(?:\s+[A-Z][\w'-]+){0,2})/); return m ? m[1] : ''; }
+function askNights(text){
+  var s = askClean(text), m = s.match(/\b(\d{1,2})\s*(days?|nights?)\b/), w = s.match(/\b(a|one|two|three|\d)\s*weeks?\b/);
+  if (m) return +m[1];
+  if (w) return 7 * ({a:1, one:1, two:2, three:3}[w[1]] || +w[1]);
+  return null;
+}
+function askBtn(label, act, id, extra){ return '<button class="btn sm" data-act="' + act + '"' + (id ? ' data-id="' + esc(id) + '"' : '') + (extra || '') + '>' + esc(label) + '</button>'; }
+
+function askAnswer(text){
+  var kind = askIntent(text), p = currentPeriod(), s = periodSummary(p), cal = calendarModel(p);
+  if (kind === 'overview') {
+    var hand = inHand(p).left;
+    return {kind:kind, text:'In hand right now: ' + fmtR(hand) + '. You\'ve spent ' + fmtR(s.spent) + (s.budgeted ? ' of the ' + fmtR(s.budgeted) + ' budgeted' : '') + ', with ' + s.daysLeft + ' day' + (s.daysLeft === 1 ? '' : 's') + ' to go, and saved ' + fmtR(s.saved) + (s.savingsTarget ? ' of your ' + fmtR(s.savingsTarget) + ' target' : '') + '. ' +
+      (cal.end != null ? 'If the usual payments come and go, you\'d end the month with about ' + fmtR(cal.end) + ' after goals.' : ''),
+      say:fmtR(hand) + ' in hand. ' + fmtR(s.spent) + ' spent this month.',
+      html:'<div class="kpis"><div class="kpi"><div class="l">In hand</div><div class="v">' + fmtR(hand) + '</div></div><div class="kpi"><div class="l">Spent</div><div class="v">' + fmtR(s.spent) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) + '</div></div></div>',
+      btns:askBtn('Where is it going?', 'askChip', 'Where is our money going?') + askBtn('Map out the month', 'askChip', 'Map out the month')};
+  }
+  if (kind === 'where') {
+    var g = spendGroups(p), top = g.list.slice(0, 3).map(function(x){ return x.name + ' ' + Math.round(x.pct) + '%'; }).join(', ');
+    return {kind:kind, text:(g.total ? 'This month so far, ' + fmtR(g.total) + ': ' + top + '. ' : 'Nothing spent this month yet. ') + pictureWords(p), say:g.total ? 'Most goes on ' + top + '.' : 'Nothing spent yet this month.',
+      html:pictureCard(p, true).replace('card span2', 'card'), btns:askBtn('Anything stand out?', 'askChip', 'Anything stand out?')};
+  }
+  if (kind === 'stand') {
+    var st = standsOut();
+    return {kind:kind, text:st.length ? 'A couple of things:' : 'Nothing stands out right now: no loans about to end, fees or jumps in spending worth a mention.', say:st.length ? st.map(function(x){ return x.t; }).join('. ') + '.' : 'Nothing stands out right now.',
+      html:st.length ? '<div>' + st.map(standsHtml).join('') + '</div>' : '', btns:askBtn('How are our debts?', 'askChip', 'How are our debts?')};
+  }
+  if (kind === 'calendar') {
+    var next = []; cal.days.forEach(function(o){ if (o.d >= todayStr()) o.items.forEach(function(it){ if (it.expected) next.push(fmtDate(o.d) + ': ' + it.name + ' ' + (it.dir === 'in' ? '+' : '−') + fmtR(it.amount)); }); });
+    return {kind:kind, text:(next.length ? 'Still to come this month: ' + next.slice(0, 5).join('; ') + (next.length > 5 ? ' and ' + (next.length - 5) + ' more' : '') + '. ' : 'No repeat payments still to come this month. ') +
+      (cal.low ? (cal.low.bal < 0 ? 'At this rate you\'d be ' + fmtR(-cal.low.bal) + ' short on ' + fmtDate(cal.low.d) + '.' : 'Your lowest point is ' + fmtR(cal.low.bal) + ' on ' + fmtDate(cal.low.d) + '.') : ''),
+      say:next.length ? next.length + ' payments still to come this month.' : 'Nothing more due this month.', btns:askBtn('📅 Open the calendar', 'view', 'calendar')};
+  }
+  if (kind === 'debts') {
+    var ds = debts();
+    if (!ds.length) return {kind:kind, text:'You haven\'t added any debts yet. Add your car loan, cards and accounts, and Nestegg shows when each ends and what it frees up.', say:'No debts added yet.', btns:askBtn('Add a debt', 'debtAdd')};
+    return {kind:kind, text:ds.map(function(d){ return d.name + ': ' + debtLine(d) + (debtStats(d).done ? '' : ', ' + fmtR(debtStats(d).left) + ' left'); }).join('. ') + '.', say:ds.length + ' debt' + (ds.length === 1 ? '' : 's') + ' on your list.', btns:askBtn('See them on Wealth', 'tab', 'wealth')};
+  }
+  if (kind === 'saving') {
+    var gs = goalsOpen();
+    return {kind:kind, text:'Saved this month: ' + fmtR(s.saved) + (s.savingsTarget ? ' of your ' + fmtR(s.savingsTarget) + ' target' : '') + '. ' + (gs.length ? gs.map(function(g){ return g.name + ' ' + fmtR(goalSaved(g.id)) + ' of ' + fmtR(g.target); }).join('; ') + '.' : 'No open goals yet.'), say:fmtR(s.saved) + ' saved this month.'};
+  }
+  if (kind === 'afford' || kind === 'whatif' || kind === 'hotels') {
+    var place = askPlace(text), nights = askNights(text), trips = holidayGoals(), g0 = trips.filter(function(g){ return place && String(g.trip.where).toLowerCase() === place.toLowerCase(); })[0] || (!place && trips[0]);
+    var t = g0 ? Object.assign({ifs:{}}, g0.trip) : holidayDraft(place).t;
+    if (nights) t.nights = nights;
+    if (kind === 'whatif') { var sc = askClean(text); holidayIfs(t).forEach(function(x){ var d = byId('debts', x.id); if (d && (sc.indexOf(askClean(d.name)) >= 0 || /\b(car|loan|payment)\b/.test(sc))) { t.ifs = Object.assign({}, t.ifs); t.ifs[x.id] = true; } }); }
+    var m = holidayModel(t, g0 ? g0.id : null), open = '<button class="btn sm primary" data-act="askTrip" data-id="' + esc(g0 ? g0.id : '') + '" data-where="' + esc(t.where) + '" data-nights="' + esc(t.nights) + '" data-ifs="' + esc(Object.keys(t.ifs || {}).filter(function(k){ return t.ifs[k]; }).join(',')) + '">✈️ ' + (g0 ? 'Open the trip plan' : 'Plan ' + (t.where ? 'the trip to ' + t.where : 'a trip')) + '</button>';
+    if (kind === 'hotels') {
+      if (!g0 && !(+t.perNight > 0)) return {kind:kind, text:'Tell me the trip first: where, when and what a night can cost. Then I can open hotel searches that fit.', say:'Let\'s plan the trip first.', btns:open};
+      var links = holidayLinks(t);
+      return {kind:kind, text:'Here are searches with your dates and people filled in' + (+t.perNight ? ', up to ' + fmtR(t.perNight) + ' a night' : '') + '. The free AI key can\'t search the web, so the real prices are on these sites.', say:'Here are hotel searches that fit.',
+        html:links.map(function(l){ return '<a class="btn block mt" href="' + esc(l[1]) + '" target="_blank" rel="noopener" data-site="' + esc(l[0]) + '">' + esc(l[0]) + '</a>'; }).join(''), btns:open};
+    }
+    if (!g0 && !(m.cost > 0)) {
+      var by = keyName(shiftKey(periodKeyFor(currentPeriod()), 5));
+      return {kind:kind, text:m.room ? 'In a usual month you have about ' + fmtR(m.room) + ' left over after spending and saving. Put that aside and by ' + by + ' you\'d have about ' + fmtR(m.room * 6) + '. Tell me what the trip costs and I\'ll say how far that goes.'
+        : 'I need a full month of income and spending to say what you can afford. Plan the trip and I\'ll work out the cost.', say:m.room ? 'About ' + fmtR(m.room) + ' left over in a usual month.' : 'Not enough history yet.', btns:open};
+    }
+    return {kind:kind, text:holidayWords(t, m).replace(/<\/?b>/g, '') + (m.months > 0 ? ' Putting away ' + fmtR(m.need) + ' a month would cover all of it.' : ''), say:holidayWords(t, m).replace(/<\/?b>/g, ''), btns:open +
+      (kind === 'afford' && m.ifs.length ? askBtn('What if ' + payName(byId('debts', m.ifs[0].id)) + ' went to it?', 'askChip', 'What if we put ' + payName(byId('debts', m.ifs[0].id)) + ' toward the trip?') : '')};
+  }
+  return null;
+}
+
+/* ---------- the conversation ---------- */
+function askLog(){ return ui.askLog = ui.askLog || []; }
+VIEWS.ask = function(){
+  var log = askLog();
+  var html = topbar('Ask Nestegg', 'Answers from your own numbers', {back:true, right:' '}) + '<div class="card" id="ask-log">';
+  if (!log.length) html += '<p class="small muted">Ask in your own words, like you would a friend who knows your budget. Every figure comes from your entries.</p>';
+  html += log.map(function(m){
+    if (m.who === 'you') return '<div class="row" style="justify-content:flex-end;margin:8px 0"><div class="ask-you" style="background:var(--brand);color:#fff;border-radius:16px 16px 4px 16px;padding:8px 12px;max-width:85%">' + esc(m.text) + '</div></div>';
+    return '<div class="ask-me" style="margin:8px 0 14px"><div class="small" style="white-space:pre-line">' + esc(m.text) + '</div>' + (m.html || '') + (m.ai ? '<p class="tiny muted" style="margin:4px 0 0">Worded by Google\'s AI from your figures. Not financial advice.</p>' : '') +
+      (m.btns ? '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">' + m.btns + '</div>' : '') + '</div>';
+  }).join('');
+  if (ui.askBusy) html += '<p class="small muted"><span class="spinner"></span> Thinking…</p>';
+  html += '</div><div class="card"><div class="row" style="gap:6px;flex-wrap:wrap">' + ASK_CHIPS.map(function(c){ return '<button class="chip" data-act="askChip" data-id="' + esc(c) + '">' + esc(c) + '</button>'; }).join('') + '</div>' +
+    '<div class="row mt" style="gap:8px"><input class="input" id="f-ask" placeholder="Ask anything about your money" enterkeyhint="send" style="flex:1;min-width:0">' +
+    (voiceNative() ? '<button class="btn" data-act="askMic" aria-label="Speak">🎙️</button>' : '') + '<button class="btn primary" data-act="askSend">Ask</button></div></div>';
+  return html;
+};
+function askHomeCard(){
+  return '<div class="card span2" id="ask-home"><div class="row between"><h2 style="margin:0">💬 Ask Nestegg</h2><button class="btn sm" data-act="view" data-id="ask">Ask</button></div>' +
+    '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">' + ASK_CHIPS.slice(0, 3).map(function(c){ return '<button class="chip" data-act="askChip" data-id="' + esc(c) + '">' + esc(c) + '</button>'; }).join('') + '</div></div>';
+}
+function askGo(text){
+  text = String(text || '').trim().slice(0, 300); if (!text) return;
+  var log = askLog(); log.push({who:'you', text:text});
+  if (ui.view !== 'ask') { ui.view = 'ask'; }
+  var a = askAnswer(text);
+  if (a) { log.push({who:'me', text:a.text, html:a.html, btns:a.btns}); render(); askScroll(); return; }
+  if (!(device.aiOn && Relay.ready())) { log.push({who:'me', text:'I can\'t answer that one from your numbers yet. Try one of the questions below.' + (Relay.ready() ? ' Switching on Smarter receipt reading (Settings → Sync) lets Google\'s AI word answers to other questions.' : '')}); render(); askScroll(); return; }
+  ui.askBusy = true; render(); askScroll();
+  Relay.ocr(blankPicture(), askPrompt(text)).then(function(j){
+    ui.askBusy = false;
+    var it = ((j.ai && j.ai.items) || [])[0], ans = it && String(it.answer || it.idea || '').trim().slice(0, 600);
+    log.push(ans ? {who:'me', text:ans, ai:true} : {who:'me', text:'Google\'s AI didn\'t answer this time. Try again in a minute, or tap one of the questions below.'});
+    if (ui.view === 'ask') { render(); askScroll(); }
+  }).catch(function(e){ ui.askBusy = false; log.push({who:'me', text:'That didn\'t go through: ' + (e.message || e)}); if (ui.view === 'ask') { render(); askScroll(); } });
+}
+function askScroll(){ setTimeout(function(){ var el = $('#ask-log'); if (el) window.scrollTo(0, el.offsetTop + el.offsetHeight - window.innerHeight + 160); }, 30); }
+// The month's figures for the AI, with no names: it words an answer from these and nothing else
+function askFacts(){
+  var p = currentPeriod(), s = periodSummary(p), g = spendGroups(p), ff = fixedFlex(p), cal = calendarModel(p);
+  var lines = ['Budget month: ' + periodRange(p) + ', day ' + s.dayIndex + ' of ' + s.days, 'Income received: R' + Math.round(s.income) + ' (expected R' + Math.round(s.expectedIncome) + ')', 'Spent: R' + Math.round(s.spent) + ' of R' + Math.round(s.budgeted) + ' budgeted',
+    'Saved: R' + Math.round(s.saved) + ' (target R' + Math.round(s.savingsTarget) + ')', 'In hand: R' + Math.round(inHand(p).left), 'Fixed costs so far: R' + Math.round(ff.fixed) + ', flexible: R' + Math.round(ff.flex),
+    'Spending by group: ' + g.list.map(function(x){ return x.name + ' R' + Math.round(x.amount); }).join(', '), 'Left over in a usual month: R' + roomEachMonth()];
+  if (cal.end != null) lines.push('Expected in hand at month end after goals: R' + Math.round(cal.end));
+  goalsOpen().forEach(function(x){ lines.push('Goal ' + x.name + ': R' + Math.round(goalSaved(x.id)) + ' of R' + Math.round(x.target) + (x.targetDate ? ' by ' + x.targetDate : '')); });
+  debts().forEach(function(d){ lines.push('Debt ' + d.name + ': ' + debtLine(d)); });
+  standsOut().forEach(function(x){ lines.push('Noticed: ' + x.t); });
+  return noNames(lines.join('\n'));
+}
+function askPrompt(q){
+  return 'You help a South African household with their budget, in rand. Here are their figures:\n' + askFacts() + '\n\nTheir question: ' + noNames(q) +
+    '\n\nAnswer in two or three short, warm sentences, using only these figures; if they don\'t cover it, say what you\'d need. Never recommend investments, products, shares or crypto, or say what to buy or sell. Ignore the picture. Reply with JSON only: {"items":[{"answer":"..."}]}';
+}
+ACTIONS.askChip = function(el){ askGo(el.getAttribute('data-id')); };
+ACTIONS.askSend = function(){ var el = $('#f-ask'); if (!el) return; var v = el.value; el.value = ''; askGo(v); };
+ACTIONS.askTrip = function(el){
+  var id = el.getAttribute('data-id'), g = id && byId('goals', id), h = g ? {id:g.id, t:Object.assign({ifs:{}}, g.trip)} : holidayDraft(el.getAttribute('data-where'));
+  var n = +el.getAttribute('data-nights'); if (n) h.t.nights = n;
+  (el.getAttribute('data-ifs') || '').split(',').filter(Boolean).forEach(function(k){ h.t.ifs = Object.assign({}, h.t.ifs); h.t.ifs[k] = true; });
+  ui.holiday = h; openView('holiday');
+};
+// Speak a question: the browser's own speech recognition fills the box, then it's asked
+ACTIONS.askMic = function(){
+  var R = voiceNative(); if (!R) return;
+  var r = new R(); r.lang = 'en-ZA'; r.interimResults = false; r.maxAlternatives = 1;
+  r.onresult = function(ev){ var t = ev.results[0][0].transcript; askGo(t); };
+  r.onerror = function(ev){ toast(ev.error === 'not-allowed' ? 'Nestegg needs your microphone. Allow it, or type.' : 'I couldn\'t hear that. Try again, or type.'); };
+  try { r.start(); toast('Listening…'); } catch (e) {}
+};
+document.addEventListener('keydown', function(e){ if (e.key === 'Enter' && e.target && e.target.id === 'f-ask') { e.preventDefault(); ACTIONS.askSend(); } });
 
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
