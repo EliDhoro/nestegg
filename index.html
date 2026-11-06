@@ -354,7 +354,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261106125508' // set by tools/build.py
+  BUILD: '20261106145202' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest','markets','debts'];
@@ -6647,8 +6647,11 @@ ACTIONS.holidaySave = function(){
 // From the video the owner shared: "how are our finances looking?", "what can we even afford?", "where is our money going every
 // month?", "anything else stand out?", "if we put the car payment toward the trip…", "map it out on a calendar", "find hotels".
 // Questions are matched by rules on the phone (askIntent) and answered with Nestegg's own figures and cards, so they work offline
-// and every number can be checked. Only a question no rule knows goes to Google's AI (when the household has a key), with the
-// month's figures and no names; the AI only words an answer from those figures and is told never to give investment advice.
+// and every number can be checked. A question no rule knows goes to Google's AI (when the household has a key) with the month's
+// figures, the conversation so far and no names. The AI only sorts it (askAiHint: which kind of question, the place, nights, line),
+// and Nestegg answers with its own sums; only when it's none of those does the AI word an answer from the figures, told never to
+// give investment advice. The trip being talked about is remembered (ui.askCtx), so "and 10 days?" carries on, even offline.
+var ASK_KINDS = ['overview', 'where', 'stand', 'calendar', 'debts', 'saving', 'afford', 'whatif', 'hotels', 'line'];
 var ASK_CHIPS = ['How are our finances looking?', 'Where is our money going?', 'What can we afford?', 'Anything stand out?', 'Map out the month', 'How are our debts?'];
 function askClean(s){ return String(s || '').toLowerCase().replace(/[’']/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
 function askIntent(text){
@@ -6674,8 +6677,28 @@ function askNights(text){
 }
 function askBtn(label, act, id, extra){ return '<button class="btn sm" data-act="' + act + '"' + (id ? ' data-id="' + esc(id) + '"' : '') + (extra || '') + '>' + esc(label) + '</button>'; }
 
-function askAnswer(text){
-  var kind = askIntent(text), p = currentPeriod(), s = periodSummary(p), cal = calendarModel(p);
+// What's still being talked about, for follow-ups
+function askCtx(){ return ui.askCtx = ui.askCtx || {}; }
+function askTripKind(k){ return k === 'afford' || k === 'whatif' || k === 'hotels'; }
+// A rule-free follow-up: "and 10 days?", "what about Cape Town?" after a trip question
+function askFollow(text){
+  var c = askCtx(), s = askClean(text);
+  if (c.kind === 'trip' && (askNights(text) || /^(and|what about|how about)\b/.test(s))) return {kind:/\bhotel|stay|flight/.test(s) ? 'hotels' : 'afford'};
+  return null;
+}
+// The budget-line questions voice already understands: how much is left or spent on a line
+function askLineRule(text){ var c = voiceParse(text); return c.kind === 'left' || c.kind === 'spent' ? {kind:'line', lineObj:c.line, ask:c.kind} : null; }
+
+function askAnswer(text, hint){
+  hint = hint || {};
+  var kind = hint.kind || askIntent(text), p = currentPeriod(), s = periodSummary(p), cal = calendarModel(p);
+  if (kind === 'line') {
+    var c = hint.lineObj || (hint.line ? voiceLine(askClean(hint.line)) : null);
+    if (!c) return {kind:kind, text:hint.ask === 'left' ? fmtR(s.leftToSpend) + ' left to spend this month, across every line.' : 'Which line? For example: how much is left on groceries?', say:hint.ask === 'left' ? fmtR(s.leftToSpend) + ' left to spend this month.' : 'Which line?'};
+    var sp = s.byCat[c.id] || 0, b = s.budgets[c.id] || 0, left = round2(b - sp);
+    return {kind:kind, text:c.emoji + ' ' + c.name + ': ' + fmtR(sp) + ' spent' + (b ? ' of ' + fmtR(b) + '. ' + (left >= 0 ? fmtR(left) + ' left, with ' + s.daysLeft + ' day' + (s.daysLeft === 1 ? '' : 's') + ' to go.' : fmtR(-left) + ' over. No stress: trim another line to get back on track.') : ', with no budget set.'),
+      say:left >= 0 ? fmtR(left) + ' left on ' + c.name + '.' : fmtR(-left) + ' over on ' + c.name + '.', html:b ? bar(sp, b) : ''};
+  }
   if (kind === 'overview') {
     var hand = inHand(p).left;
     return {kind:kind, text:'In hand right now: ' + fmtR(hand) + '. You\'ve spent ' + fmtR(s.spent) + (s.budgeted ? ' of the ' + fmtR(s.budgeted) + ' budgeted' : '') + ', with ' + s.daysLeft + ' day' + (s.daysLeft === 1 ? '' : 's') + ' to go, and saved ' + fmtR(s.saved) + (s.savingsTarget ? ' of your ' + fmtR(s.savingsTarget) + ' target' : '') + '. ' +
@@ -6710,10 +6733,12 @@ function askAnswer(text){
     return {kind:kind, text:'Saved this month: ' + fmtR(s.saved) + (s.savingsTarget ? ' of your ' + fmtR(s.savingsTarget) + ' target' : '') + '. ' + (gs.length ? gs.map(function(g){ return g.name + ' ' + fmtR(goalSaved(g.id)) + ' of ' + fmtR(g.target); }).join('; ') + '.' : 'No open goals yet.'), say:fmtR(s.saved) + ' saved this month.'};
   }
   if (kind === 'afford' || kind === 'whatif' || kind === 'hotels') {
-    var place = askPlace(text), nights = askNights(text), trips = holidayGoals(), g0 = trips.filter(function(g){ return place && String(g.trip.where).toLowerCase() === place.toLowerCase(); })[0] || (!place && trips[0]);
+    var ctx = askCtx(), place = String(hint.place || askPlace(text) || ctx.place || '').slice(0, 40), nights = hint.nights || askNights(text) || (ctx.kind === 'trip' ? ctx.nights : null), trips = holidayGoals(), g0 = trips.filter(function(g){ return place && String(g.trip.where).toLowerCase() === place.toLowerCase(); })[0] || (!place && trips[0]);
     var t = g0 ? Object.assign({ifs:{}}, g0.trip) : holidayDraft(place).t;
     if (nights) t.nights = nights;
-    if (kind === 'whatif') { var sc = askClean(text); holidayIfs(t).forEach(function(x){ var d = byId('debts', x.id); if (d && (sc.indexOf(askClean(d.name)) >= 0 || /\b(car|loan|payment)\b/.test(sc))) { t.ifs = Object.assign({}, t.ifs); t.ifs[x.id] = true; } }); }
+    if (kind === 'whatif') { var sc = askClean(text); holidayIfs(t).forEach(function(x){ var d = byId('debts', x.id); if (d && (hint.useDebt || sc.indexOf(askClean(d.name)) >= 0 || /\b(car|loan|payment)\b/.test(sc))) { t.ifs = Object.assign({}, t.ifs); t.ifs[x.id] = true; } }); }
+    else if (ctx.kind === 'trip' && ctx.ifs) t.ifs = Object.assign({}, t.ifs, ctx.ifs);
+    ui.askCtx = {kind:'trip', place:t.where, nights:t.nights, ifs:t.ifs};
     var m = holidayModel(t, g0 ? g0.id : null), open = '<button class="btn sm primary" data-act="askTrip" data-id="' + esc(g0 ? g0.id : '') + '" data-where="' + esc(t.where) + '" data-nights="' + esc(t.nights) + '" data-ifs="' + esc(Object.keys(t.ifs || {}).filter(function(k){ return t.ifs[k]; }).join(',')) + '">✈️ ' + (g0 ? 'Open the trip plan' : 'Plan ' + (t.where ? 'the trip to ' + t.where : 'a trip')) + '</button>';
     if (kind === 'hotels') {
       if (!g0 && !(+t.perNight > 0)) return {kind:kind, text:'Tell me the trip first: where, when and what a night can cost. Then I can open hotel searches that fit.', say:'Let\'s plan the trip first.', btns:open};
@@ -6740,7 +6765,7 @@ VIEWS.ask = function(){
   if (!log.length) html += '<p class="small muted">Ask in your own words, like you would a friend who knows your budget. Every figure comes from your entries.</p>';
   html += log.map(function(m){
     if (m.who === 'you') return '<div class="row" style="justify-content:flex-end;margin:8px 0"><div class="ask-you" style="background:var(--brand);color:#fff;border-radius:16px 16px 4px 16px;padding:8px 12px;max-width:85%">' + esc(m.text) + '</div></div>';
-    return '<div class="ask-me" style="margin:8px 0 14px"><div class="small" style="white-space:pre-line">' + esc(m.text) + '</div>' + (m.html || '') + (m.ai ? '<p class="tiny muted" style="margin:4px 0 0">Worded by Google\'s AI from your figures. Not financial advice.</p>' : '') +
+    return '<div class="ask-me" style="margin:8px 0 14px"><div class="small" style="white-space:pre-line">' + esc(m.text) + '</div>' + (m.html || '') + (m.ai ? '<p class="tiny muted" style="margin:4px 0 0">Worded by Google\'s AI from your figures. Not financial advice.</p>' : m.understood ? '<p class="tiny muted" style="margin:4px 0 0">Google\'s AI worked out the question; the figures are Nestegg\'s own.</p>' : '') +
       (m.btns ? '<div class="row" style="gap:6px;flex-wrap:wrap;margin-top:8px">' + m.btns + '</div>' : '') + '</div>';
   }).join('');
   if (ui.askBusy) html += '<p class="small muted"><span class="spinner"></span> Thinking…</p>';
@@ -6757,14 +6782,15 @@ function askGo(text){
   text = String(text || '').trim().slice(0, 300); if (!text) return;
   var log = askLog(); log.push({who:'you', text:text});
   if (ui.view !== 'ask') { ui.view = 'ask'; }
-  var a = askAnswer(text);
-  if (a) { log.push({who:'me', text:a.text, html:a.html, btns:a.btns}); render(); askScroll(); return; }
+  var a = askAnswer(text, askIntent(text) ? null : askLineRule(text) || askFollow(text));
+  if (a) { if (!askTripKind(a.kind)) ui.askCtx = {kind:a.kind}; log.push({who:'me', kind:a.kind, text:a.text, html:a.html, btns:a.btns}); render(); askScroll(); return; }
   if (!(device.aiOn && Relay.ready())) { log.push({who:'me', text:'I can\'t answer that one from your numbers yet. Try one of the questions below.' + (Relay.ready() ? ' Switching on Smarter receipt reading (Settings → Sync) lets Google\'s AI word answers to other questions.' : '')}); render(); askScroll(); return; }
   ui.askBusy = true; render(); askScroll();
   Relay.ocr(blankPicture(), askPrompt(text)).then(function(j){
     ui.askBusy = false;
-    var it = ((j.ai && j.ai.items) || [])[0], ans = it && String(it.answer || it.idea || '').trim().slice(0, 600);
-    log.push(ans ? {who:'me', text:ans, ai:true} : {who:'me', text:'Google\'s AI didn\'t answer this time. Try again in a minute, or tap one of the questions below.'});
+    var it = ((j.ai && j.ai.items) || [])[0] || {}, hint = askAiHint(it), b = hint && askAnswer(text, hint), ans = String(it.answer || it.idea || '').trim().slice(0, 600);
+    if (b) { if (!askTripKind(b.kind)) ui.askCtx = {kind:b.kind}; log.push({who:'me', kind:b.kind, text:b.text, html:b.html, btns:b.btns, understood:true}); }
+    else log.push(ans ? {who:'me', text:ans, ai:true} : {who:'me', text:'Google\'s AI didn\'t answer this time. Try again in a minute, or tap one of the questions below.'});
     if (ui.view === 'ask') { render(); askScroll(); }
   }).catch(function(e){ ui.askBusy = false; log.push({who:'me', text:'That didn\'t go through: ' + (e.message || e)}); if (ui.view === 'ask') { render(); askScroll(); } });
 }
@@ -6781,9 +6807,24 @@ function askFacts(){
   standsOut().forEach(function(x){ lines.push('Noticed: ' + x.t); });
   return noNames(lines.join('\n'));
 }
+// What the AI sorted the question into, checked: only a known kind, a short place, sensible nights
+function askAiHint(it){
+  var k = String(it.intent || '').toLowerCase().trim(); if (ASK_KINDS.indexOf(k) < 0) return null;
+  var n = Math.round(+it.nights || 0);
+  return {kind:k, place:String(it.place || '').replace(/[^\w '\-]/g, '').trim().slice(0, 40), nights:n >= 1 && n <= 90 ? n : null, line:String(it.line || '').slice(0, 40), useDebt:it.useDebt === true};
+}
+// The last few turns, so a follow-up makes sense (what Nestegg answered is named by its kind and place, not repeated)
+function askHistory(){
+  var c = askCtx();
+  return askLog().slice(-7, -1).map(function(m){ return m.who === 'you' ? 'They asked: ' + noNames(m.text) : 'Nestegg answered about: ' + (m.kind || 'something else') + (askTripKind(m.kind) && c.place ? ' (' + c.place + ', ' + (c.nights || '?') + ' nights)' : ''); }).join('\n');
+}
 function askPrompt(q){
-  return 'You help a South African household with their budget, in rand. Here are their figures:\n' + askFacts() + '\n\nTheir question: ' + noNames(q) +
-    '\n\nAnswer in two or three short, warm sentences, using only these figures; if they don\'t cover it, say what you\'d need. Never recommend investments, products, shares or crypto, or say what to buy or sell. Ignore the picture. Reply with JSON only: {"items":[{"answer":"..."}]}';
+  var h = askHistory();
+  return 'You help a South African household with their budgeting app, in rand. Here are their figures:\n' + askFacts() + (h ? '\n\nThe conversation so far:\n' + h : '') + '\n\nTheir new question: ' + noNames(q) +
+    '\n\nFirst decide what they are asking. "intent" is one of: overview (how things are going overall), where (where the money goes, spending breakdown, fixed and flexible costs), stand (anything unusual or worth noticing), calendar (bills and payments coming up, mapping out the month), debts (loans, cards, money owed), saving (savings and goals), afford (whether they can afford something, a trip or holiday), whatif (putting a loan payment that ends towards a trip), hotels (places to stay or flights), line (how much is spent or left on one budget line), other. A follow-up such as "and 10 days?" carries on the earlier topic.' +
+    ' "place": the destination named or being discussed, else "". "nights": nights or days named (a week is 7), else 0. "line": the budget line they mean, spelled as one of: ' + noNames(spendCats().map(function(c){ return c.name; }).join(', ')) + ', else "". "useDebt": true if they want a loan payment put towards the trip.' +
+    ' "answer": only when intent is "other", two or three short, warm sentences using only these figures; if they don\'t cover it, say what you\'d need. Never recommend investments, products, shares or crypto, or say what to buy or sell. Ignore the picture.' +
+    ' Reply with JSON only: {"items":[{"intent":"","place":"","nights":0,"line":"","useDebt":false,"answer":""}]}';
 }
 ACTIONS.askChip = function(el){ askGo(el.getAttribute('data-id')); };
 ACTIONS.askSend = function(){ var el = $('#f-ask'); if (!el) return; var v = el.value; el.value = ''; askGo(v); };
