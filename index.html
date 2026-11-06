@@ -354,7 +354,7 @@ var CONFIG = {
   APP_NAME: 'Nestegg',
   DATA_FILE: 'nestegg-household-data.json',
   VERSION: '1.0.0',
-  BUILD: '20261106145202' // set by tools/build.py
+  BUILD: '20261106155435' // set by tools/build.py
 };
 var LS_DATA = 'nestegg-data-v1', LS_DEVICE = 'nestegg-device-v1';
 var COLLS = ['categories','tx','goals','netWorth','checkins','moneyDates','rules','itemRules','accounts','recons','trips','promises','invest','markets','debts'];
@@ -894,6 +894,7 @@ function pointsFor(start){
     add('check', 'Accounts checked against the bank (' + nChecks + ')', nChecks * 30, '🔎');
     var reached = live('goals').filter(function(g){ return g.reachedOn && g.reachedOn >= start && g.reachedOn <= end; }).length;
     add('goal', 'Goals reached', reached * 100, '🏆');
+    add('plan', 'Budget set from your history', ((state.household || {}).planFromHistory || {})[periodKeyFor(start)] ? 40 : 0, '🧭');
     return {total:total, items:items, tier:tierFor(total), next:nextTier(total)};
   });
 }
@@ -1147,6 +1148,7 @@ function celebrate(before){
   var a = snapshot(), gained = a.pts - before.pts;
   if (!before.today && a.today) setTimeout(function(){ duckCheck(true); }, 600);
   setTimeout(checkPromises, 900);
+  alertsCheck('me');
   if (!before.today && a.today) { toast('🔥 Checked in!' + (gained > 0 ? ' +' + fmtR(gained) + ' towards your reward.' : '') + ' Streak: ' + a.streak + ' day' + (a.streak===1?'':'s'), 'gold'); buzz(25); }
   else if (gained > 0) toast('+' + fmtR(gained) + ' towards your reward 🎁', 'gold');
   if (a.tier !== before.tier && a.pts > before.pts) { setTimeout(function(){ toast('🎉 ' + a.tier + '! ' + fmtR(a.pts) + ' earned this month', 'gold'); }, 600); confetti(); }
@@ -1405,6 +1407,7 @@ function sortTx(a){ return a.slice().sort(function(x,y){ return x.date !== y.dat
 function nudges(){
   var out = [], p = currentPeriod(), s = periodSummary(p), d = new Date(), st = memberStreak(me().id);
   out = out.concat(investNudges());
+  out = alertNudges().concat(out);
   if (!st.today && st.streak >= 2 && d.getHours() >= 17) out.unshift({e:'🔥', t:'Your ' + st.streak + '-day streak ends at midnight', s:'Log today\'s spending, or tap No spend today. ' + (st.freezes ? 'A freeze would save it, but keep those for emergencies.' : 'You have no freezes left.'), act:'quickAdd', id:'', cls:'gold'});
   if (!live('tx').length) out.push({e:'📄', t:'Bring in your bank statements', s:'Import FNB or GoTyme statements to see where your money really goes.', act:'view', id:'import', cls:'blue'});
   if (s.income === 0) out.push({e:'💰', t:'Payday? Log your income', s:'Record what came in so every rand can get a job.', act:'addType', id:'income', cls:'green'});
@@ -1447,7 +1450,7 @@ function viewHome(){
       s.leftToSpend >= 0 ? 'About <b style="color:#fff">' + fmtR(perDay) + ' a day</b> for the next ' + s.daysLeft + ' days. Spent ' + fmtR(s.spent) + ' of ' + fmtR(s.budgeted) + '.'
       : 'Over by ' + fmtR(-s.leftToSpend) + '. No stress — pick one category to trim and get back on track.') + '</div>' +
     '<div class="kpis mt"><div class="kpi"><div class="l">Income</div><div class="v">' + fmtR(s.income) + '</div></div><div class="kpi"><div class="l">Saved</div><div class="v">' + fmtR(s.saved) +
-    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div>' + inHandRow(p) + '</div>' + askHomeCard();
+    '</div></div><div class="kpi"><div class="l">Not spent 💪</div><div class="v">' + fmtR(s.skipped) + '</div></div></div>' + inHandRow(p) + '</div>' + healthCard() + askHomeCard();
   // check-in
   html += '<div class="card"><div class="row between"><h2>Daily check-in</h2>' + (mine.today ? '<span class="pill green">✓ Done today</span>' : '<span class="pill gold">Not yet today</span>') + '</div>' + duckCard() +
     '<div class="streaks"><div class="streak ' + (mine.today?'done':'') + '"><div class="n">🔥 ' + mine.streak + '</div><div class="l">' + esc(me().name) + '</div><div class="f">' + (mine.freezes ? '🧊×' + mine.freezes : '&nbsp;') + '</div></div>' +
@@ -1587,6 +1590,7 @@ function viewBudget(){
     '<div class="li tap" data-act="view" data-id="activity"><div class="ico">🧾</div><div class="main"><div class="t">All transactions</div><div class="s">Search, edit or delete</div></div></div></div></div>';
   html += pictureCard(p);
   if (p === currentPeriod()) html += standsCard();
+  html += trendsCard();
   var byGroup = {};
   liveCats().forEach(function(c){ var g = catGroup(c); (byGroup[g] = byGroup[g] || []).push(c); });
   groupsList().forEach(function(g){
@@ -1676,7 +1680,7 @@ SHEETS.cat = function(sh){
     '<label class="field" style="flex:1"><span>Name</span><input class="input" id="f-cn" value="' + esc(c ? c.name : '') + '" placeholder="e.g. Petrol"></label></div>' +
     '<div class="row"><label class="field" style="flex:1"><span>Amount for ' + esc(periodName(p)) + '</span><input class="input" id="f-cb" inputmode="decimal" value="' + (isPct ? pl.pct : (+pl.amount || '')) + '" placeholder="0"></label>' +
     '<label class="field" style="width:130px"><span>As</span><select class="input" id="f-cm" data-change="catMode"><option value="amount"' + (isPct ? '' : ' selected') + '>Rand</option><option value="pct"' + (isPct ? ' selected' : '') + '>% of income</option></select></label></div>' +
-    '<p class="small muted" id="f-cm-note">' + catModeNote(isPct, p) + '</p>' +
+    '<p class="small muted" id="f-cm-note">' + catModeNote(isPct, p) + '</p>' + (c ? lineHistoryHtml(c.id) : '') +
     (c && c.group === 'reward' ? '' : '<label class="field"><span>Group</span><select class="input" id="f-cg" data-change="catGroupPick">' +
       groupsList().filter(function(g){ return g.id !== 'reward'; }).map(function(g){ return '<option value="' + g.id + '"' + (cg === g.id ? ' selected' : '') + '>' + esc((g.emoji ? g.emoji + ' ' : '') + g.name) + '</option>'; }).join('') +
       '<option value="__new">➕ New group…</option></select></label>' +
@@ -1758,16 +1762,16 @@ ACTIONS.deleteCat = function(){
   live('tx').forEach(function(t){ if (t.categoryId === id) { t.categoryId = 'c-other'; t.updatedAt = now(); } });
   removeItem('categories', id); saveState(); closeSheet(); render(true);
 };
-ACTIONS.suggestBudget = function(){
-  var cur = currentPeriod(), periods = [], p = prevPeriodStart(cur);
-  for (var i = 0; i < 6 && periods.length < 3; i++) { if (periodSummary(p).spent > 0) periods.push(p); p = prevPeriodStart(p); }
+ACTIONS.suggestBudget = function(el){
+  var want = +(el && el.getAttribute && el.getAttribute('data-months')) || 3, cur = currentPeriod(), periods = [], p = prevPeriodStart(cur);
+  for (var i = 0; i < want * 2 && periods.length < want; i++) { if (periodSummary(p).spent > 0) periods.push(p); p = prevPeriodStart(p); }
   if (!periods.length) { toast('Import a statement or log a month of spending first'); return; }
   var sug = {};
   spendCats().forEach(function(c){
     var avg = sum(periods, function(pp){ return periodSummary(pp).byCat[c.id]; }) / periods.length;
     sug[c.id] = avg > 0 ? Math.ceil(avg / 50) * 50 : 0;
   });
-  openSheet('suggest', {sug:sug, n:periods.length});
+  openSheet('suggest', {sug:sug, n:periods.length, months:want, history:true});
 };
 // Split expected income by the default SA percentages; custom categories keep their amount; the remainder goes to savings
 ACTIONS.suggestIncome = function(){
@@ -1786,7 +1790,9 @@ SHEETS.suggest = function(sh){
   var rows = spendCats().filter(function(c){ return sh.sug[c.id] > 0 || now[c.id] > 0; });
   return (sh.income
       ? '<h2>✨ Budget from our income</h2><p class="small muted">Splits your ' + fmtR(sh.income) + ' a month using typical South African household percentages. Change any amount to fit your life. Applies to ' + esc(periodName(p)) + ' onwards.</p>'
-      : '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Applies to ' + esc(periodName(p)) + ' onwards. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>') +
+      : '<h2>✨ Suggested budget</h2><p class="small muted">Based on your average over the last ' + sh.n + ' month' + (sh.n===1?'':'s') + '. Applies to ' + esc(periodName(p)) + ' onwards. Tip: trim the "Wants" a little — that\'s where the savings come from.</p>' +
+        '<div class="row" style="gap:6px;margin-bottom:8px">' + [3, 6, 12].map(function(k){ return '<button class="chip' + (sh.months === k ? ' on' : '') + '" data-act="suggestBudget" data-months="' + k + '">' + k + '-month average</button>'; }).join('') + '</div>' +
+        (rewardNew(p) && !((state.household || {}).planFromHistory || {})[periodKeyFor(p)] ? '<p class="small">🧭 Setting your budget from your history earns a bonus towards this month\'s reward.</p>' : '')) +
     '<div class="tbl-wrap"><table class="tbl"><tr><th>Category</th><th class="right">Now</th><th class="right">Suggested</th></tr>' +
     rows.map(function(c){ return '<tr><td>' + c.emoji + ' ' + esc(c.name) + (sh.pct && sh.pct[c.id] ? ' <span class="small muted">' + sh.pct[c.id] + '%</span>' : '') + '</td><td class="right muted">' + fmtR(now[c.id] || 0) + '</td><td class="right"><input class="input" style="min-height:34px;width:100px;text-align:right" data-sug="' + c.id + '" inputmode="decimal" value="' + sh.sug[c.id] + '"></td></tr>'; }).join('') +
     '</table></div><div class="row between mt small"><span class="muted">Total suggested</span><b>' + fmtR(sum(rows, function(c){ return sh.sug[c.id]; })) + '</b></div>' +
@@ -1802,7 +1808,9 @@ ACTIONS.applySuggest = function(){
   });
   var sv = $('[data-sugsave]');
   if (sv) { var h = Object.assign({}, state.household); h.savingsTarget = Math.max(0, parseAmount(sv.value) || 0); setHousehold(h); }
-  saveState(); closeSheet(); render(true); toast('Budget updated ✓');
+  var before = snapshot();
+  if (ui.sheet && ui.sheet.history) { var hh = Object.assign({}, state.household); hh.planFromHistory = Object.assign({}, hh.planFromHistory || {}); if (!hh.planFromHistory[k]) hh.planFromHistory[k] = todayStr(); setHousehold(hh); }
+  saveState(); closeSheet(); render(true); toast('Budget updated ✓'); celebrate(before);
 };
 
 /* ---------- income lines ---------- */
@@ -1899,7 +1907,7 @@ function viewWealth(){
       '</div>';
   });
   html += '</div>';
-  html += accountsCard() + debtsCard() + investCard() + marketsCard();
+  html += accountsCard() + debtsCard() + savingsCard() + investCard() + marketsCard();
   // net worth
   html += '<div class="card"><div class="row between"><h2>Net worth</h2><button class="btn ghost sm" data-act="editNW">Update</button></div>';
   if (!nw.length) html += '<div class="empty"><span class="e">📈</span>What you own minus what you owe. Update it once a month and watch the line climb.<br><button class="btn primary mt" data-act="editNW">Add first snapshot</button></div>';
@@ -2026,6 +2034,7 @@ function habitsCard(p, lv){
     {e:'☕', t:'A money date together', how:'15 minutes, once a week', v:r(50) + ' a week', st:dateDone ? '✅ Done this week' : 'Not yet this week', k:'date', done:dateDone},
     {e:'🔎', t:'Check an account against the bank', how:'Wealth → Your accounts', v:r(30) + ' a week each', st:checked ? '✅ Done this week' : 'Not yet this week', k:'check', done:checked, act:checked ? '' : 'compareBank'},
     {e:'📄', t:'Import a bank statement', how:'Budget → Import', v:r(20) + ' a month', st:got['import'] ? '✅ Done this month' : 'Not yet this month', k:'import', done:!!got['import'], act:got['import'] ? '' : 'view', id:'import'},
+    {e:'🧭', t:'Budget set from your history', how:'Budget → Suggest from our history, from your 3, 6 or 12-month averages', v:r(40) + ' a month', st:got['plan'] ? '✅ Done this month' : 'Not yet this month', k:'plan', done:!!got['plan'], act:got['plan'] ? '' : 'suggestBudget'},
     {e:'🏆', t:'Reach a goal', how:goalsOpen().length + ' goal' + (goalsOpen().length === 1 ? '' : 's') + ' on the go', v:r(100) + ' each', st:'', k:'goal', act:'tab', id:'wealth'}
   ].filter(Boolean);
   return '<div class="card span2" id="rw-habits"><h2>Good habits, and what each is worth</h2><div class="list">' + rows.map(function(x){
@@ -2486,7 +2495,7 @@ VIEWS.settings = function(){
   // reminders
   html += '<div class="card"><h2>⏰ Reminders</h2><p class="small muted">Habits stick when they\'re triggered at the same time daily. Add these to your phone calendar — free, and they work even when the app is closed.</p><div class="list">' +
     REMINDERS.map(function(r, i){ return '<div class="li"><div class="ico">' + r.e + '</div><div class="main"><div class="t">' + esc(r.title) + '</div><div class="s">' + esc(r.when) + '</div></div><a class="btn sm" target="_blank" rel="noopener" href="' + esc(gcalLink(r)) + '">Google Cal</a></div>'; }).join('') +
-    '</div><button class="btn block mt" data-act="icsDownload">📅 Download all for iPhone / Outlook (.ics)</button></div>';
+    '</div><button class="btn block mt" data-act="icsDownload">📅 Download all for iPhone / Outlook (.ics)</button><div class="sep"></div>' + alertSettingsHtml() + '</div>';
   // rules
   var rules = live('rules');
   html += '<div class="card"><h2>🤖 Auto-categorise rules</h2><p class="small muted">Learned when you change a category on an imported transaction.</p>' +
@@ -6844,6 +6853,229 @@ ACTIONS.askMic = function(){
 };
 document.addEventListener('keydown', function(e){ if (e.key === 'Enter' && e.target && e.target.id === 'f-ask') { e.preventDefault(); ACTIONS.askSend(); } });
 
+/* ===== Nestegg — money health: six rings for the habits behind a healthy household ===== */
+// From the Vitality Money video the owner shared: six rings on the home screen for financial behaviours (plan, savings, debt,
+// insurance, retirement, property). Here each ring fills from the household's own entries, says how it was worked out, and says
+// what would fill it. They are habits, never product advice: nothing here names a fund, policy or provider.
+//   Plan    a budget set (⅓), spending on pace with it (⅓), and the money looked at in the last 30 days: a money date or bank check (⅓)
+//   Save    saved this month against the bigger of the savings target and 10% of income
+//   Debt    no debt, or loans on track and repayments within 30% of income (falling to nothing at 60%)
+//   Cover   medical aid and life or funeral cover paid or budgeted
+//   Future  put into investments this month against 5% of income
+//   Home    rent or bond within 30% of income (falling to nothing at 50%)
+var HEALTH = [['plan', 'Plan', '🗺️'], ['save', 'Save', '🏦'], ['debt', 'Debt', '💳'], ['cover', 'Cover', '🛡️'], ['future', 'Future', '🌱'], ['home', 'Home', '🏠']];
+function healthModel(){
+  return memo('health', function(){
+    var p = currentPeriod(), s = periodSummary(p), t = todayStr(), inc = Math.max(s.incomeBase, s.income), out = {};
+    var prev = periodSummary(prevPeriodStart(p)), base = prev.spent > 0 ? prev : s; // last full month for costs that come once a month
+    function ratio(v, good, bad){ return v <= good ? 1 : v >= bad ? 0 : (bad - v) / (bad - good); }
+    // plan
+    var pace = s.budgeted > 0 ? s.spent <= s.budgeted * Math.max(0.15, s.dayIndex / s.days) * 1.05 : false;
+    var looked = live('moneyDates').some(function(x){ return x.date >= addDays(t, -30); }) || live('recons').some(function(r){ return (r.on || r.asOf || '') >= addDays(t, -30) && r.balanced !== false; });
+    out.plan = {fill:((s.budgeted > 0) + pace + looked) / 3, why:[(s.budgeted > 0 ? '✓' : '○') + ' A budget for ' + periodName(p), (pace ? '✓' : '○') + ' Spending on pace with it (' + fmtR(s.spent) + ' of ' + fmtR(s.budgeted) + ', day ' + s.dayIndex + ' of ' + s.days + ')', (looked ? '✓' : '○') + ' A money date or bank check in the last 30 days'],
+      next:!(s.budgeted > 0) ? 'Set a budget on the Budget tab.' : !pace ? 'Spending is ahead of the budget: hold back on a flexible line for a few days.' : !looked ? 'Have a 15-minute money date, or check an account against the bank.' : 'All three done this month.'};
+    // save
+    var aim = Math.max(s.savingsTarget || 0, Math.round(inc * 0.1));
+    out.save = {fill:aim > 0 ? Math.min(1, s.saved / aim) : 0, why:['Saved ' + fmtR(s.saved) + ' this month', 'Aim: ' + fmtR(aim) + (s.savingsTarget > inc * 0.1 ? ' (your savings target)' : ' (10% of income)')],
+      next:s.saved >= aim ? 'Saved what you aimed for this month.' : 'Put ' + fmtR(aim - s.saved) + ' more into savings this month.'};
+    // debt
+    var ds = debts().filter(function(d){ return d.kind !== 'owed'; }), owing = ds.filter(function(d){ return !debtStats(d).done; });
+    var repay = sum(Object.keys(base.byCat), function(id){ return catGroup(cat(id)) === 'g-debt' || id === 'c-carpay' ? base.byCat[id] : 0; });
+    var share = inc > 0 ? repay / inc : 0, onTrack = owing.every(function(d){ var st = debtStats(d); return d.kind === 'term' || !st.monthly || st.paid > 0; });
+    out.debt = !owing.length && !repay ? {fill:1, why:['No debt repayments in your entries'], next:'Nothing owed. Keep it that way.'}
+      : {fill:(onTrack ? 0.5 : 0) + 0.5 * ratio(share, 0.3, 0.6), why:['Repayments: ' + fmtR(repay) + ' a month, ' + Math.round(share * 100) + '% of income', (onTrack ? '✓' : '○') + ' Debts on your list paid as planned'],
+        next:share > 0.3 ? 'Repayments are over 30% of income. Each loan that ends frees up room: see Wealth → Debts.' : !onTrack ? 'Record this month\'s card or account payment on Wealth → Debts.' : 'On track.'};
+    // cover
+    function paid(id){ return (s.byCat[id] || 0) > 0 || (base.byCat[id] || 0) > 0 || (s.budgets[id] || 0) > 0; }
+    var med = paid('c-medaid'), life = paid('c-insurance');
+    out.cover = {fill:(med + life) / 2, why:[(med ? '✓' : '○') + ' Medical aid', (life ? '✓' : '○') + ' Life or funeral cover'],
+      next:med && life ? 'Both in place.' : 'Budget for ' + (!med ? 'medical aid' : 'life or funeral cover') + ' if you have it, so Nestegg can see it.'};
+    // future
+    var put = sum(s.txs.filter(function(x){ return x.type === 'saving' && x.investId && x.dir !== 'in'; }), function(x){ return x.amount; }), fAim = Math.round(inc * 0.05);
+    out.future = {fill:fAim > 0 ? Math.min(1, put / fAim) : 0, why:['Put into investments this month: ' + fmtR(put), 'Aim: ' + fmtR(fAim) + ' (5% of income)'],
+      next:put >= fAim ? 'Done for this month.' : invests().length ? 'Record money moved on Wealth → Investments.' : 'Add a retirement fund or investment on Wealth → Investments.'};
+    // home
+    var house = base.byCat['c-rent'] || s.budgets['c-rent'] || 0, hs = inc > 0 ? house / inc : 0;
+    out.home = {fill:house > 0 ? ratio(hs, 0.3, 0.5) : 0.5, why:[house > 0 ? 'Rent or bond: ' + fmtR(house) + ', ' + Math.round(hs * 100) + '% of income' : 'No rent or bond in your entries'],
+      next:!house ? 'Log your rent or bond under Home → Rent / Bond.' : hs <= 0.3 ? 'Within 30% of income.' : 'Over 30% of income: it\'s the biggest lever when you next move or refinance.'};
+    var score = Math.round(sum(HEALTH, function(h){ return out[h[0]].fill; }) / HEALTH.length * 100);
+    return {rings:out, score:score};
+  });
+}
+function healthRing(fill, size){
+  var r = 15, C = 2 * Math.PI * r, col = fill >= 0.99 ? 'var(--brand)' : fill >= 0.5 ? '#d9a21b' : '#d0573f';
+  return '<svg viewBox="0 0 40 40" style="width:' + size + 'px;height:' + size + 'px"><circle cx="20" cy="20" r="' + r + '" fill="none" stroke="var(--line,#e6e0d6)" stroke-width="5"/>' +
+    '<circle cx="20" cy="20" r="' + r + '" fill="none" stroke="' + col + '" stroke-width="5" stroke-linecap="round" stroke-dasharray="' + (fill * C).toFixed(2) + ' ' + C.toFixed(2) + '" transform="rotate(-90 20 20)"/></svg>';
+}
+function healthCard(){
+  var m = healthModel();
+  return '<div class="card span2" id="health"><div class="row between"><h2 style="margin:0">💚 Money health</h2><span class="pill ' + (m.score >= 80 ? 'green' : 'gold') + '" id="health-score">' + m.score + ' / 100</span></div>' +
+    '<div style="display:grid;grid-template-columns:repeat(6,1fr);gap:4px;margin-top:10px">' + HEALTH.map(function(h){
+      var x = m.rings[h[0]];
+      return '<div class="tap center" data-act="healthOpen" data-id="' + h[0] + '" id="health-' + h[0] + '" style="cursor:pointer;position:relative"><div style="position:relative;display:inline-block">' + healthRing(x.fill, 46) +
+        '<span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:16px">' + h[2] + '</span></div><div class="tiny" style="margin-top:2px">' + h[1] + '</div></div>';
+    }).join('') + '</div><p class="tiny muted" style="margin:8px 0 0">Habits from your own entries, not advice. Tap a ring to see how it\'s worked out and what fills it.</p></div>';
+}
+ACTIONS.healthOpen = function(el){ openSheet('health', {id:el.getAttribute('data-id')}); };
+SHEETS.health = function(sh){
+  var h = HEALTH.filter(function(x){ return x[0] === sh.id; })[0] || HEALTH[0], x = healthModel().rings[h[0]];
+  return '<h2>' + h[2] + ' ' + h[1] + '</h2><div class="row" style="gap:14px;align-items:center">' + healthRing(x.fill, 70) + '<div class="big-num" style="font-size:26px">' + Math.round(x.fill * 100) + '%</div></div>' +
+    '<div class="mt">' + x.why.map(function(w){ return '<div class="small" style="padding:3px 0">' + esc(w) + '</div>'; }).join('') + '</div>' +
+    '<div class="nudge green mt" style="cursor:default"><div class="e">👉</div><div><div class="t">' + esc(x.next) + '</div></div></div>' +
+    '<div class="btns"><button class="btn" data-act="closeSheet">Done</button></div>';
+};
+
+/* ===== Nestegg — over time: spending trends, each line's last 12 months, and savings ===== */
+// From the Vitality Money video the owner shared: stacked bars of spending by category month by month, a 12-month chart for each
+// category with its 3-, 6- and 12-month averages to budget from, and a savings chart of what went in and came out each month.
+function trendHue(id){
+  var g = groupsList().filter(function(x){ return x.id === id; })[0];
+  if (g && g.hue != null) return g.hue;
+  var h = 0; for (var i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360; return h;
+}
+// The last n budget months up to this one, oldest first, from the first month with any entry in it
+function trendMonths(n){
+  var out = [], p = currentPeriod();
+  for (var i = 0; i < n; i++) { out.unshift(p); p = prevPeriodStart(p); }
+  var first = null; live('tx').forEach(function(x){ if (!first || x.date < first) first = x.date; });
+  var from = first ? periodStartFor(first) : currentPeriod();
+  return out.filter(function(q){ return q >= from; });
+}
+function monthLabel(p){ return MONTHS[+periodKeyFor(p).slice(5, 7) - 1]; }
+
+/* ---------- spending trends (Budget tab) ---------- */
+function trendsCard(){
+  var n = device.trendN || 6, months = trendMonths(n), only = ui.trendGroup || null, cur = currentPeriod();
+  var html = '<div class="card span2" id="trends"><div class="row between"><h2 style="margin:0">📊 Spending over time</h2><div class="row" style="gap:4px">' +
+    [6, 12].map(function(k){ return '<button class="chip' + (n === k ? ' on' : '') + '" data-act="trendN" data-id="' + k + '">' + k + ' mo</button>'; }).join('') + '</div></div>';
+  if (months.length < 2) return html + '<p class="small muted">After two months of entries, this shows how spending moves from month to month.</p></div>';
+  var cols = months.map(function(p){ return {p:p, g:spendGroups(p).list.filter(function(x){ return !only || x.id === only; })}; });
+  cols.forEach(function(c){ c.total = round2(sum(c.g, function(x){ return x.amount; })); });
+  var full = cols.filter(function(c){ return c.p !== cur; }), avg = full.length ? sum(full, function(c){ return c.total; }) / full.length : 0;
+  var max = Math.max.apply(null, cols.map(function(c){ return c.total; }).concat([avg, 1])), W = 100, H = 60, bw = W / cols.length;
+  var order = groupsList().map(function(g){ return g.id; }).concat(['other']);
+  var bars = cols.map(function(c, i){
+    var y = H, x = i * bw + bw * 0.18, w = bw * 0.64, rects = '';
+    c.g.slice().sort(function(a, b){ return order.indexOf(a.id) - order.indexOf(b.id); }).forEach(function(g){ var h = g.amount / max * (H - 4); y -= h; rects += '<rect x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + w.toFixed(2) + '" height="' + Math.max(0, h).toFixed(2) + '" fill="hsl(' + trendHue(g.id) + ',55%,' + (c.p === cur ? '68' : '48') + '%)"/>'; });
+    return rects;
+  }).join('');
+  var avgY = H - avg / max * (H - 4);
+  html += '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="width:100%;height:150px;margin-top:10px" role="img" aria-label="Spending by month">' + bars +
+    (avg > 0 ? '<line x1="0" x2="' + W + '" y1="' + avgY.toFixed(2) + '" y2="' + avgY.toFixed(2) + '" stroke="currentColor" stroke-opacity=".5" stroke-dasharray="1.5 1.5" stroke-width=".4" vector-effect="non-scaling-stroke"/>' : '') + '</svg>' +
+    '<div style="display:grid;grid-template-columns:repeat(' + cols.length + ',1fr);text-align:center">' + cols.map(function(c){ return '<div class="tiny ' + (c.p === cur ? 'strong' : 'muted') + '" data-month="' + periodKeyFor(c.p) + '">' + monthLabel(c.p) + '<br>' + shortR(c.total) + '</div>'; }).join('') + '</div>';
+  var hi = full.slice().sort(function(a, b){ return b.total - a.total; })[0];
+  html += '<p class="small mt" id="trends-words">' + (only ? esc((groupsList().filter(function(g){ return g.id === only; })[0] || {name:'Other'}).name) + ': ' : '') + 'about <b>' + fmtR(avg) + '</b> a month over the last ' + full.length + ' full month' + (full.length === 1 ? '' : 's') + (hi ? '; the most was ' + esc(periodName(hi.p)) + ' at ' + fmtR(hi.total) : '') + '. The dashed line is the average; this month so far is lighter.</p>';
+  var seen = {}; cols.forEach(function(c){ c.g.forEach(function(g){ seen[g.id] = g.name; }); });
+  if (!only) spendGroups(cur).list.forEach(function(g){ seen[g.id] = g.name; });
+  html += '<div class="row" style="gap:6px;flex-wrap:wrap">' + (only ? '<button class="chip on" data-act="trendGroup" data-id="">✕ ' + esc(seen[only] || 'Other') + '</button>' :
+    Object.keys(seen).sort(function(a, b){ return order.indexOf(a) - order.indexOf(b); }).map(function(id){ return '<button class="chip" data-act="trendGroup" data-id="' + esc(id) + '"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:hsl(' + trendHue(id) + ',55%,48%);margin-right:4px"></span>' + esc(seen[id]) + '</button>'; }).join('')) + '</div>';
+  return html + '</div>';
+}
+ACTIONS.trendN = function(el){ device.trendN = +el.getAttribute('data-id'); saveDevice(); render(true); };
+ACTIONS.trendGroup = function(el){ ui.trendGroup = el.getAttribute('data-id') || null; render(true); };
+
+/* ---------- one line's last 12 months, and its averages (in the line's sheet) ---------- */
+function lineHistory(id){
+  var months = trendMonths(13).filter(function(p){ return p !== currentPeriod(); }).slice(-12);
+  return months.map(function(p){ return {p:p, v:round2(periodSummary(p).byCat[id] || 0)}; });
+}
+function lineAverages(id){
+  var h = lineHistory(id), out = [];
+  [3, 6, 12].forEach(function(k){ if (h.length >= k || (k === 3 && h.length)) { var part = h.slice(-k); out.push({k:part.length, avg:Math.ceil(sum(part, function(x){ return x.v; }) / part.length / 10) * 10, from:part[0].p, to:part[part.length - 1].p}); } });
+  return out.filter(function(x, i, a){ return !i || x.k !== a[i - 1].k; });
+}
+function lineHistoryHtml(id){
+  var h = lineHistory(id); if (!h.length || !h.some(function(x){ return x.v; })) return '';
+  var max = Math.max.apply(null, h.map(function(x){ return x.v; }).concat([1])), bw = 100 / h.length;
+  var bars = h.map(function(x, i){ var hh = x.v / max * 36; return '<rect x="' + (i * bw + bw * 0.2).toFixed(2) + '" y="' + (40 - hh).toFixed(2) + '" width="' + (bw * 0.6).toFixed(2) + '" height="' + hh.toFixed(2) + '" fill="var(--brand)" opacity=".75"/>'; }).join('');
+  return '<div id="line-history"><div class="small strong mt">Last ' + h.length + ' month' + (h.length === 1 ? '' : 's') + '</div><svg viewBox="0 0 100 40" preserveAspectRatio="none" style="width:100%;height:70px">' + bars + '</svg>' +
+    '<div style="display:grid;grid-template-columns:repeat(' + h.length + ',1fr);text-align:center">' + h.map(function(x){ return '<div class="tiny muted">' + monthLabel(x.p) + '</div>'; }).join('') + '</div>' +
+    '<div class="row mt" style="gap:6px;flex-wrap:wrap">' + lineAverages(id).map(function(a){ return '<button class="btn sm" data-act="catUseAvg" data-v="' + a.avg + '">Use the ' + a.k + '-month average: ' + fmtR(a.avg) + '</button>'; }).join('') + '</div>' +
+    '<p class="tiny muted" style="margin:4px 0 0">Averages of full months, rounded up to R10. Tap one to put it in the amount above, then Save.</p></div>';
+}
+ACTIONS.catUseAvg = function(el){ var b = $('#f-cb'), m = $('#f-cm'); if (b) b.value = el.getAttribute('data-v'); if (m && m.value !== 'amount') { m.value = 'amount'; if (CHANGES.catMode) CHANGES.catMode(m); } toast('Amount set to ' + fmtR(+el.getAttribute('data-v')) + ': tap Save to keep it'); };
+
+/* ---------- savings over time (Wealth tab) ---------- */
+function savingsTrend(){
+  var months = trendMonths(12), run = 0;
+  return months.map(function(p){
+    var txs = periodSummary(p).txs.filter(function(x){ return x.type === 'saving'; });
+    var put = round2(sum(txs.filter(function(x){ return x.dir !== 'in'; }), function(x){ return x.amount; })), out = round2(sum(txs.filter(function(x){ return x.dir === 'in'; }), function(x){ return x.amount; }));
+    run = round2(run + put - out);
+    return {p:p, put:put, out:out, net:round2(put - out), total:run};
+  });
+}
+function savingsCard(){
+  var t = savingsTrend(), any = t.some(function(x){ return x.put || x.out; });
+  var html = '<div class="card span2" id="savings-trend"><h2>🏦 Savings over time</h2>';
+  if (!any) return html + '<p class="small muted">Money you move to savings shows here month by month: what went in, what came out and how the total grows.</p></div>';
+  var max = Math.max.apply(null, t.map(function(x){ return Math.abs(x.net); }).concat([1])), tmax = Math.max.apply(null, t.map(function(x){ return x.total; }).concat([1])), tmin = Math.min.apply(null, t.map(function(x){ return x.total; }).concat([0]));
+  var W = 100, H = 60, mid = H / 2, bw = W / t.length;
+  var bars = t.map(function(x, i){ var h = Math.abs(x.net) / max * (mid - 3); return '<rect x="' + (i * bw + bw * 0.2).toFixed(2) + '" y="' + (x.net >= 0 ? mid - h : mid).toFixed(2) + '" width="' + (bw * 0.6).toFixed(2) + '" height="' + h.toFixed(2) + '" fill="' + (x.net >= 0 ? 'var(--brand)' : '#d0573f') + '" opacity=".75"/>'; }).join('');
+  var span = tmax - tmin || 1, line = t.map(function(x, i){ return (i * bw + bw / 2).toFixed(2) + ',' + (H - 3 - (x.total - tmin) / span * (H - 6)).toFixed(2); }).join(' ');
+  html += '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" style="width:100%;height:130px" role="img" aria-label="Savings by month"><line x1="0" x2="' + W + '" y1="' + mid + '" y2="' + mid + '" stroke="currentColor" stroke-opacity=".15" stroke-width=".4" vector-effect="non-scaling-stroke"/>' + bars +
+    '<polyline points="' + line + '" fill="none" stroke="#2f6fb5" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>' +
+    '<div style="display:grid;grid-template-columns:repeat(' + t.length + ',1fr);text-align:center">' + t.map(function(x){ return '<div class="tiny muted">' + monthLabel(x.p) + '</div>'; }).join('') + '</div>';
+  var last = t[t.length - 1];
+  html += '<div class="kpis mt"><div class="kpi"><div class="l">In this month</div><div class="v pos">' + fmtR(last.put) + '</div></div><div class="kpi"><div class="l">Out</div><div class="v neg">' + fmtR(last.out) + '</div></div><div class="kpi"><div class="l">Over ' + t.length + ' months</div><div class="v">' + fmtR(last.total) + '</div></div></div>' +
+    '<p class="tiny muted" style="margin:6px 0 0">Bars are each month\'s net saving (green in, red out); the blue line is the running total since ' + esc(periodName(t[0].p)) + '.</p>';
+  return html + '</div>';
+}
+
+/* ===== Nestegg — budget alerts at a level you choose ===== */
+// From the Vitality Money video the owner shared: "You have spent 75% of your budgeted allowance for Eating Out and Takeouts".
+// Each phone notes the level it has told you about per line and month (device.alertSeen), so an alert comes once at the chosen level
+// (household.alertAt: 50, 75 or 90; 0 is off; 75 if never set) and once more when the line goes over. It's checked after your own
+// entries (from celebrate), after a sync brings in the other phone's, and on opening. With no push server, a phone notification can
+// only show while Nestegg is open or in the background, and only once allowed (Settings → Reminders).
+function alertAt(){ var h = state.household || {}; return h.alertAt == null ? 75 : +h.alertAt; }
+function alertLines(){
+  var at = alertAt(), p = currentPeriod(), s = periodSummary(p), out = [];
+  if (!at) return out;
+  spendCats().forEach(function(c){
+    var b = s.budgets[c.id] || 0, sp = s.byCat[c.id] || 0; if (!(b > 0) || c.id === 'c-reward') return;
+    var pct = sp / b * 100, level = pct >= 100 ? 100 : pct >= at ? at : 0;
+    if (level) out.push({c:c, level:level, pct:pct, left:round2(b - sp), spent:sp, budget:b});
+  });
+  return out.sort(function(a, b){ return b.pct - a.pct; });
+}
+function alertWords(a){
+  return a.level >= 100 ? a.c.name + ' is over budget by ' + fmtR(-a.left) : 'You\'ve used ' + Math.floor(a.pct) + '% of the ' + a.c.name + ' budget: ' + fmtR(a.left) + ' left';
+}
+function alertsCheck(src){
+  if (!state.household || !alertAt()) return;
+  var key = periodKeyFor(currentPeriod()), seen = device.alertSeen, fresh = [];
+  if (!seen || seen.key !== key) { var first = !seen; seen = device.alertSeen = {key:key, lines:{}}; if (first) { alertLines().forEach(function(a){ seen.lines[a.c.id] = a.level; }); saveDevice(); return; } }
+  alertLines().forEach(function(a){ if ((seen.lines[a.c.id] || 0) < a.level) { fresh.push(a); seen.lines[a.c.id] = a.level; } });
+  if (!fresh.length) return;
+  saveDevice();
+  var msg = fresh.length === 1 ? alertWords(fresh[0]) : fresh.length + ' budget lines need a look: ' + fresh.map(function(a){ return a.c.name + ' ' + Math.floor(a.pct) + '%'; }).join(', ');
+  setTimeout(function(){ toast('⚠️ ' + msg, 'gold'); }, src === 'me' ? 1400 : 0);
+  if (src === 'sync') alertNotify(msg);
+}
+// A phone notification for what the other phone logged; it needs permission, and on Android it has to come from the service worker
+function alertNotify(msg){
+  try {
+    if (!('Notification' in window) || Notification.permission !== 'granted' || !navigator.serviceWorker) return;
+    navigator.serviceWorker.ready.then(function(reg){ reg.showNotification('Nestegg budget alert', {body:msg, tag:'nestegg-alert', icon:'icons/icon-192.png'}); }).catch(function(){});
+  } catch (e) {}
+}
+function alertNudges(){
+  return alertLines().slice(0, 2).map(function(a){
+    var s = periodSummary(currentPeriod());
+    return {e:a.level >= 100 ? '🚨' : '⚠️', t:a.c.name + ': ' + Math.floor(a.pct) + '% used', s:a.level >= 100 ? fmtR(-a.left) + ' over. Trim another line to get back on track.' : fmtR(a.left) + ' left with ' + s.daysLeft + ' day' + (s.daysLeft === 1 ? '' : 's') + ' to go.', act:'editCat', id:a.c.id, cls:'gold'};
+  });
+}
+function alertSettingsHtml(){
+  var at = alertAt(), can = 'Notification' in window, perm = can ? Notification.permission : 'unsupported';
+  return '<div class="li"><div class="ico">⚠️</div><div class="main"><div class="t">Budget alerts</div><div class="s">When a line reaches this much of its budget, and when it goes over</div></div>' +
+    '<select class="input" id="f-alertat" data-change="alertAt" style="width:auto">' + [[0, 'Off'], [50, '50%'], [75, '75%'], [90, '90%']].map(function(o){ return '<option value="' + o[0] + '"' + (at === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+    (at && can && perm === 'default' ? '<button class="btn block" data-act="alertAllow">🔔 Show alerts as phone notifications</button><p class="tiny muted">For the other person\'s spending, while Nestegg is open or in the background. Nestegg has no server, so it can\'t alert you while it\'s fully closed.</p>'
+      : at && perm === 'denied' ? '<p class="tiny muted">Phone notifications are blocked for Nestegg in your browser settings; alerts still show inside the app.</p>' : '');
+}
+CHANGES.alertAt = function(el){ var h = Object.assign({}, state.household); h.alertAt = +el.value; setHousehold(h); saveState(); render(true); toast(+el.value ? 'Alerts at ' + el.value + '% and when over' : 'Budget alerts off'); };
+ACTIONS.alertAllow = function(){ try { Notification.requestPermission().then(function(r){ toast(r === 'granted' ? '🔔 Alerts will show as notifications' : 'Alerts will show inside the app'); render(true); }); } catch (e) {} };
+
 /* ===== Nestegg — Google Drive sync (free; your own Drive; no server) ===== */
 var Drive = {
   SCOPE: 'https://www.googleapis.com/auth/drive.file',
@@ -7256,7 +7488,7 @@ function runSync(interactive){
       device.dirty = _changes !== changesAtStart; device.lastSync = now(); device.syncError = '';
       var wasJoining = device.joining; device.joining = false; device.joinError = '';
       saveDevice(); if (wasJoining) render(true); else softRender();
-      if (!wasJoining) checkPromises();
+      if (!wasJoining) { checkPromises(); alertsCheck('sync'); }
       if (wasJoining) { toast('Household downloaded ✓'); openSheet('switchMe'); }
       else if (interactive) toast('Synced ✓');
     } else softRender();
@@ -7497,6 +7729,7 @@ function init(){
   duckCheck(false);
   lunoRefresh(false);
   marketsRefresh(false);
+  alertsCheck('open');
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     // updateViaCache 'none': always ask GitHub for a new sw.js, so a new version is noticed straight away
     var hadWorker = !!navigator.serviceWorker.controller;
